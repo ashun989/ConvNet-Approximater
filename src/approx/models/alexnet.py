@@ -1,8 +1,10 @@
 import torch
 from torch import nn
+from collections import OrderedDict
+from .switchable import SwitchableModel
 
 
-class AlexNet(nn.Module):
+class AlexNet(SwitchableModel):
     def __init__(self, num_classes: int = 10, dropout: float = 0.5) -> None:
         super().__init__()
         self.features = nn.Sequential(
