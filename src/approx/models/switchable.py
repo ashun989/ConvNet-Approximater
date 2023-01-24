@@ -1,7 +1,10 @@
+import torch
 from torch import nn
 from typing import Callable
 
 from approx.utils.registry import build_from_cfg, Registry
+from approx.utils.logger import get_logger
+from approx.utils.general import check_file
 
 
 class SwitchableModel(nn.Module):
@@ -10,7 +13,7 @@ class SwitchableModel(nn.Module):
         self._switchable_names: list[str] = []
 
     def register_switchable(self, src_type: type):
-        cache = [("", self)]
+        cache = [(name, module) for name, module in self.named_children()]
         while cache:
             top = cache[0]
             del cache[0]
@@ -21,9 +24,8 @@ class SwitchableModel(nn.Module):
                 cache.append((f"{top[0]}.{name}", module))
 
     @property
-    def length_switchable(self):
+    def length_switchable(self) -> int:
         return len(self._switchable_names)
-
 
     def set_switchable_module(self, index: int, func: Callable, **func_args):
         m_names = self._switchable_names[index].split('.')
@@ -43,5 +45,19 @@ class SwitchableModel(nn.Module):
 MODEL = Registry()
 
 
-def build_model(cfg: dict) -> SwitchableModel:
-    return build_from_cfg(cfg, MODEL)
+def build_model(cfg: dict, device:str) -> SwitchableModel:
+    ckpt_file = cfg.pop("checkpoint", None)
+    model = build_from_cfg(cfg, MODEL)
+    if check_file(ckpt_file):
+        ckpt = torch.load(ckpt_file, map_location=torch.device(device))
+        if 'state_dict' in ckpt:
+            missing, unexpected = model.load_state_dict(ckpt['state_dict'], strict=False)
+        else:
+            missing, unexpected = model.load_state_dict(ckpt, strict=False)
+        logger = get_logger()
+        logger.info(f"Load state dict from {ckpt_file}")
+        if missing:
+            logger.warn(f"Missing Keys: {missing}")
+        if unexpected:
+            logger.warn(f"Unexpected keys: {unexpected}")
+    return model

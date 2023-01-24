@@ -1,9 +1,10 @@
 import torch
 from torch import nn
-from collections import OrderedDict
-from .switchable import SwitchableModel
 
+from .switchable import SwitchableModel, MODEL
+from approx.layers import SimpleConv
 
+@MODEL.register_module()
 class AlexNet(SwitchableModel):
     def __init__(self, num_classes: int = 10, dropout: float = 0.5) -> None:
         super().__init__()
@@ -11,14 +12,14 @@ class AlexNet(SwitchableModel):
             nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.Conv2d(64, 192, kernel_size=5, padding=2),
+            SimpleConv(64, 192, kernel_size=5, padding=2),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.Conv2d(192, 384, kernel_size=3, padding=1),
+            SimpleConv(192, 384, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(384, 256, kernel_size=3, padding=1),
+            SimpleConv(384, 256, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, kernel_size=3, padding=1),
+            SimpleConv(256, 256, kernel_size=3, padding=1),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
         )

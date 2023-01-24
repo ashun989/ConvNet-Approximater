@@ -28,7 +28,10 @@ def build_from_cfg(cfg, registry, **kwargs):
         args = cfg.copy()
         args.update(kwargs)
         obj_type = args.pop('type')
-        obj_cls = registry.get(obj_type)
+        if isinstance(obj_type, type):
+            obj_cls = obj_type
+        else:
+            obj_cls = registry.get(obj_type)
         try:
             module = obj_cls(**args)
         except TypeError as e:

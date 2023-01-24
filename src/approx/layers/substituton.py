@@ -13,19 +13,19 @@ class Parallel(nn.Module):
 
 
 class Substitution(nn.Module):
-    def __init__(self, old_module: nn.Module, new_module):
+    def __init__(self, old_module: nn.Module, new_module: nn.Module):
         super(Substitution, self).__init__()
         self.old = old_module
         self.new = new_module
         self.net = Parallel(self.old, self.new)
 
-    # @property
-    # def old_module(self) -> nn.Module:
-    #     return self.old
-    #
-    # @property
-    # def new_module(self) -> nn.Module:
-    #     return self.new
+    @property
+    def old_module(self) -> nn.Module:
+        return self.old
+
+    @property
+    def new_module(self) -> nn.Module:
+        return self.new
 
     def remove_old(self):
         self.net = self.new
