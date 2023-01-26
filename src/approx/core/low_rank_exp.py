@@ -67,7 +67,7 @@ class LowRankExpV1(Approximater):
         error = cp.sum(cp.norm2(filters - weights @ bases, axis=1))
         norm = lmda * sum(nuc_list)
         obj = cp.Minimize(error + norm)
-        return cp.Problem(obj), dict(bases=bases, weights=weights, lmda=lmda, error=error, norm=norm)
+        return cp.Problem(obj), dict(bases=bases, weights=weights, lmda=lmda, error=error, norm=norm, obj=obj)
 
     def optimize(self, sub: Substitution):
         logger = get_logger()
@@ -85,28 +85,27 @@ class LowRankExpV1(Approximater):
         problem2, cache2 = self._get_bi_object(W, num_bases, False)
         assert problem1.is_dcp(), "problem1 is not DCP!"
         assert problem2.is_dcp(), "problem2 is not DCP!"
-        if not problem1.is_dcp(dpp=True):
-            logger.warn("problem1 is not DPP!")
-        if not problem2.is_dcp(dpp=True):
-            logger.warn("problem2 is not DPP!")
+        # too many paramters to use DPP
+        # if not problem1.is_dcp(dpp=True):
+        #     logger.warn("problem1 is not DPP!")
+        # if not problem2.is_dcp(dpp=True):
+        #     logger.warn("problem2 is not DPP!")
         cache1['weights'].value = np.ones((num_filters, num_bases)) / num_bases
         logger.info("Begin optimizing")
         for iter, lmda in enumerate(self.lmda_list):
             # Fix weights, update bases
             cache1['lmda'].value = lmda
             problem1.solve(ignore_dpp=True)
-            total_err = cache1['error'].value + cache1['norm'].value
-            logger.info(f"({iter}/{self.max_iter})[1], lambda: {lmda}, L2 error: {cache1['error']}, "
-                        f"regular term: {cache1['norm']}, total error: {total_err}")
-            for n in range(N * C):
-                cache2['bases'][n].value = cache1['bases'][n].value
+            total_err = cache1['obj'].value
+            logger.info(f"({iter}/{self.max_iter})[1], lambda: {lmda}, total error: {total_err}")
+
+            cache2['bases'].value = cache1['bases'].value
             # Fix bases, update weights
             cache2['lmda'].value = lmda
             problem2.solve(ignore_dpp=True)
-            total_err = cache2['error'].value + cache2['norm'].value
-            logger.info(f"({iter}/{self.max_iter})[2], lambda: {lmda}, L2 error: {cache1['error']}, "
-                        f"regular term: {cache1['norm']}, total error: {total_err}")
-            cache1['weights'].value = cache2['weights']
+            total_err = cache2['obj'].value
+            logger.info(f"({iter}/{self.max_iter})[2], lambda: {lmda}, total error: {total_err}")
+            cache1['weights'].value = cache2['weights'].value
 
             if abs(last_err - total_err) < epsilon:
                 break
