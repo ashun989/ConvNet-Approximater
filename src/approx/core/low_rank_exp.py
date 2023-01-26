@@ -1,4 +1,6 @@
 import torch
+import numpy as np
+import cvxpy as cp
 
 from .approximater import Approximater, APP
 from approx.layers import LowRankExpConvV1, LowRankExpConvV2, SimpleConv, Substitution
@@ -42,18 +44,75 @@ class LowRankExpV1(Approximater):
         bases = bases.permute(2, 3, 0, 1)  # (d, d, M, C)
         _W = torch.matmul(alpha, bases).permute(2, 3, 0, 1)  # (N, C, d, d)
         err = torch.sum(torch.square(torch.linalg.norm(W - _W, dim=(2, 3), ord=2)))
-        err2 = lmda * torch.sum(torch.linalg.norm(bases, dim=(0, 1), ord='nuc')) / C
+        err2 = lmda * torch.sum(torch.linalg.norm(bases[..., 0], dim=(0, 1), ord='nuc'))
         get_logger().debug(f"L2 error: {err}, nuclear norm: {err2}")
         return err + err2
 
+    def _get_bi_object(self,
+                       filters: np.ndarray,
+                       num_filters: int,
+                       num_bases: int,
+                       k_size: int,
+                       version: bool = True):
+        if version:
+            bases = [cp.Variable((k_size, k_size)) for _ in range(num_filters)]
+            weights = cp.Parameter((num_filters, num_bases))
+        else:
+            bases = [cp.Parameter((k_size, k_size)) for _ in range(num_filters)]
+            weights = cp.Variable((num_filters, num_bases))
+        lmda = cp.Parameter(nonneg=True)
+        l2_list = []
+        nuc_list = []
+        for n in range(num_filters):
+            m_adds = []
+            for m in range(num_bases):
+                m_adds.append(weights[n, m] * cp.vec(bases[m]))
+            l2_list.append(cp.norm2(cp.vec(filters[n]) - sum(m_adds)))
+        for m in range(num_bases):
+            nuc_list.append(cp.normNuc(bases[m]))
+        error = sum(l2_list)
+        norm = lmda * sum(nuc_list)
+        obj = cp.Minimize(error + norm)
+        return cp.Problem(obj), dict(bases=bases, weights=weights, lmda=lmda, error=error, norm=norm)
+
     def optimize(self, sub: Substitution):
+        logger = get_logger()
         epsilon = 1e-2
-        last_err = self.filter_construct_error(sub.old_module, sub.new_module, self.lmda_list[0])
-        get_logger().info(f"Total error: {last_err}")
+        src: SimpleConv = sub.old_module
+        tgt: LowRankExpConvV1 = sub.new_module
+        last_err = 0
+        W = src.weight.data.numpy()  # (N, C, d, d)
+        N, C, d = W.shape[:3]
+        M = tgt.d_conv.in_channels
+        W = W.reshape(-1, d, d)
+        problem1, cache1 = self._get_bi_object(W, N * C, M, d, True)
+        problem2, cache2 = self._get_bi_object(W, N * C, M, d, False)
+        assert problem1.is_dcp(), "problem1 is not DCP!"
+        assert problem2.is_dcp(), "problem2 is not DCP!"
+        if not problem1.is_dcp(ddp=True):
+            logger.warn("problem1 is not DDP!")
+        if not problem2.is_dcp(ddp=True):
+            logger.warn("problem2 is not DDP!")
+        cache1['weights'].value = np.ones((N * C, M)) / M
+        logger.info("Begin optimizing")
         for iter, lmda in enumerate(self.lmda_list):
-            # TODO: Alternative optimize
-            err = self.filter_construct_error(sub.old_module, sub.new_module, lmda)
-            get_logger().info(f"({iter}/{self.max_iter}), total error: {err}, lambda: {lmda}")
-            if abs(last_err - err) < epsilon:
+            # Fix weights, update bases
+            cache1['lmda'].value = lmda
+            problem1.solve()
+            total_err = cache1['error'].value + cache1['norm'].value
+            logger.info(f"({iter}/{self.max_iter})[1], lambda: {lmda}, L2 error: {cache1['error']}, "
+                        f"regular term: {cache1['norm']}, total error: {total_err}")
+            for n in range(N * C):
+                cache2['bases'][n].value = cache1['bases'][n].value
+            # Fix bases, update weights
+            cache2['lmda'].value = lmda
+            problem2.solve()
+            total_err = cache2['error'].value + cache2['norm'].value
+            logger.info(f"({iter}/{self.max_iter})[2], lambda: {lmda}, L2 error: {cache1['error']}, "
+                        f"regular term: {cache1['norm']}, total error: {total_err}")
+            cache1['weights'].value = cache2['weights']
+
+            if abs(last_err - total_err) < epsilon:
                 break
-            last_err = err
+            last_err = total_err
+        logger.info("Finish optimizing")
