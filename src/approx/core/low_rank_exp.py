@@ -126,10 +126,9 @@ class LowRankExpV1(Approximater):
                 if abs(last_err - total_err) < epsilon:
                     break
                 last_err = total_err
-        W = W.reshape(C, N, d ** 2)
-        W = torch.from_numpy(cache1['bases'])
-        tgt.s_conv.weight.data = W.transpose(0, 1).reshape(N, C, d, d)
-        tgt.d_conv.weight.data[:, :, 0, 0] = torch.from_numpy(cache2['weights'])
+        tmp = torch.from_numpy(cache1['bases'].value)  # (M, d^2)
+        tgt.s_conv.weight.data = tmp.reshape(M, d, d)
+        tgt.d_conv.weight.data[:, :, 0, 0] = torch.from_numpy(cache2['weights'].value)
 
     def _postprocess(self, sub: Substitution):
         src: nn.Conv2d = sub.old_module

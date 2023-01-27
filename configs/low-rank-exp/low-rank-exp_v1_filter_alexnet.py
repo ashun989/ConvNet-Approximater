@@ -5,11 +5,11 @@ model = dict(
 
 app = dict(
     type="LowRankExpV1",
-    max_iter=3,
+    max_iter=1,
     min_lmda=0.0001,
-    max_lmda=0.1,
+    max_lmda=0.0001,
     lmda_length=1,
-    speed_ratio=3
+    speed_ratio=0.1
 )
 
 filters = [
