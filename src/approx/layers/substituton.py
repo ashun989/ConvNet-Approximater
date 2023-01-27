@@ -38,5 +38,5 @@ class Substitution(nn.Module):
 LAYER = Registry()
 
 
-def build_layer(cfg: dict) -> nn.Module:
-    return build_from_cfg(cfg, LAYER)
+def build_layer(cfg: dict, **kwargs) -> nn.Module:
+    return build_from_cfg(cfg, LAYER, **kwargs)

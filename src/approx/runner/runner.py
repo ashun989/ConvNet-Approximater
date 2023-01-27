@@ -16,7 +16,7 @@ class Runner:
         self.model = build_model(cfg.model, device=cfg.device)
         self.app = build_app(cfg.app)
         self.filters = [build_filter(f_cfg) for f_cfg in cfg.filters]
-        self.ckpt_path = os.path.join(cfg.work_dir, "opt_old.pth")
+        self.ckpt_path = os.path.join(cfg.work_dir, "opt.pth")
 
     def run(self):
         # Step1: Substitute old module with 2-branch module
