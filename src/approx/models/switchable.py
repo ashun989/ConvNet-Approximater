@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-from typing import Callable
+from typing import Callable, List
 
 from approx.utils.registry import build_from_cfg, Registry
 from approx.utils.logger import get_logger
@@ -11,9 +11,9 @@ from approx.filters import ModuleFilter
 class SwitchableModel(nn.Module):
     def __init__(self):
         super(SwitchableModel, self).__init__()
-        self._switchable_names: list[str] = []
+        self._switchable_names: List[str] = []
 
-    def register_switchable(self, src_type: type, filters: list[ModuleFilter]):
+    def register_switchable(self, src_type: type, filters: List[ModuleFilter]):
         cache = [(name, module) for name, module in self.named_children()]
         while cache:
             top = cache[0]

@@ -1,12 +1,13 @@
 from torch import nn
 import numpy as np
+from typing import Tuple
 
 from .module_filter import ModuleFilter, FILTER
 
 
 @FILTER.register_module()
 class IndicesFilter(ModuleFilter):
-    def __init__(self, indices: tuple[int, ...]):
+    def __init__(self, indices: Tuple[int, ...]):
         self.records = np.zeros(max(indices) + 1, np.bool_)
         self.records[indices] = True
         self.curr = 1
