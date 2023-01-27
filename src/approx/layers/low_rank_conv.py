@@ -6,10 +6,10 @@ from .substituton import LAYER
 
 class SeparableConv(nn.Module):
     def __init__(self, in_channels: int, out_channels: int,
-                 kernel_size: int, stride: int, padding: int):
+                 kernel_size: tuple, stride: tuple, padding: tuple):
         super(SeparableConv, self).__init__()
-        self.v_conv = nn.Conv2d(in_channels, out_channels, (kernel_size, 1), (stride, 1), (padding, 0), bias=False)
-        self.h_conv = nn.Conv2d(1, out_channels, (1, kernel_size), (1, stride), (0, padding), bias=False)
+        self.v_conv = nn.Conv2d(in_channels, out_channels, (kernel_size[0], 1), (stride[0], 1), (padding[0], 0), bias=False)
+        self.h_conv = nn.Conv2d(1, out_channels, (1, kernel_size[1]), (1, stride[1]), (0, padding[1]), bias=False)
 
     def forward(self, x):
         return self.h_conv(self.v_conv(x))
@@ -22,7 +22,7 @@ class LowRankExpConvV1(nn.Module):
     """
 
     def __init__(self, in_channels: int, out_channels: int,
-                 kernel_size: int, stride: int, padding: int,
+                 kernel_size: tuple, stride: tuple, padding: tuple,
                  num_base: int, deploy: bool = False):
         super(LowRankExpConvV1, self).__init__()
         self.s_conv = SeparableConv(in_channels, num_base, kernel_size, stride, padding) if deploy else nn.Conv2d(
@@ -53,12 +53,12 @@ class LowRankExpConvV2(nn.Module):
     Scheme2 in https://arxiv.org/abs/1405.3866
     """
 
-    def __init__(self, in_channels: int, out_channels: int,
-                 kernel_size: int, stride: int, padding: int,
-                 num_base: int):
+    def __init__(self, in_channels: int, num_base: int,
+                 kernel_size: tuple, stride: tuple, padding: tuple,
+                 ):
         super(LowRankExpConvV2, self).__init__()
-        self.v_conv = nn.Conv2d(in_channels, num_base, (kernel_size, 1), (stride, 1), (padding, 0), bias=False)
-        self.h_conv = nn.Conv2d(num_base, out_channels, (1, kernel_size), (1, stride), (0, padding))
+        self.v_conv = nn.Conv2d(in_channels, num_base, (kernel_size[0], 1), (stride[0], 1), (padding[0], 0), bias=False)
+        self.h_conv = nn.Conv2d(num_base, num_base, (1, kernel_size[1]), (1, stride[1]), (0, padding[1]), groups=num_base)
 
     def forward(self, x):
         return self.h_conv(self.v_conv(x))

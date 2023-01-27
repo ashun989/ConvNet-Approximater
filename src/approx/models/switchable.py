@@ -4,7 +4,8 @@ from typing import Callable
 
 from approx.utils.registry import build_from_cfg, Registry
 from approx.utils.logger import get_logger
-from approx.utils.general import check_file
+from approx.utils.serialize import load_model
+from approx.filters import ModuleFilter
 
 
 class SwitchableModel(nn.Module):
@@ -12,13 +13,20 @@ class SwitchableModel(nn.Module):
         super(SwitchableModel, self).__init__()
         self._switchable_names: list[str] = []
 
-    def register_switchable(self, src_type: type):
+    def register_switchable(self, src_type: type, filters: list[ModuleFilter]):
         cache = [(name, module) for name, module in self.named_children()]
         while cache:
             top = cache[0]
             del cache[0]
             if isinstance(top[1], src_type):
-                self._switchable_names.append(top[0])
+                passed = True
+                for f in filters:
+                    if not f(top[1]):
+                        passed = False
+                        get_logger().info(f"{top[0]} is filtered out by {f.__class__.__name__}")
+                        break
+                if passed:
+                    self._switchable_names.append(top[0])
                 continue  # Supposing src_type is not recursive
             for name, module in top[1].named_children():
                 cache.append((f"{top[0]}.{name}", module))
@@ -48,16 +56,5 @@ MODEL = Registry()
 def build_model(cfg: dict, device:str) -> SwitchableModel:
     ckpt_file = cfg.pop("checkpoint", None)
     model = build_from_cfg(cfg, MODEL)
-    if check_file(ckpt_file):
-        ckpt = torch.load(ckpt_file, map_location=torch.device(device))
-        if 'state_dict' in ckpt:
-            missing, unexpected = model.load_state_dict(ckpt['state_dict'], strict=False)
-        else:
-            missing, unexpected = model.load_state_dict(ckpt, strict=False)
-        logger = get_logger()
-        logger.info(f"Load state dict from {ckpt_file}")
-        if missing:
-            logger.warn(f"Missing Keys: {missing}")
-        if unexpected:
-            logger.warn(f"Unexpected keys: {unexpected}")
+    load_model(model, ckpt_file, device)
     return model

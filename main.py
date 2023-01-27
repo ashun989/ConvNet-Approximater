@@ -1,5 +1,7 @@
 import argparse
 import os.path
+from datetime import datetime
+
 
 import torch.cuda
 
@@ -18,11 +20,12 @@ def parse_args():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     paths = os.path.split(args.config)
-    work_dir = os.path.join("work_dir", *paths[1:-1])
     config_name = os.path.splitext(paths[-1])[0]
+    work_dir = os.path.join("work_dir", config_name)
     update_cfg(work_dir=work_dir, device=device)
     os.makedirs(work_dir, exist_ok=True)
-    log_file = os.path.join(work_dir, config_name + '.log')
+    log_name = datetime.now().strftime('%Y%m%d%H%M%S') + '.log'
+    log_file = os.path.join(work_dir, log_name)
     build_logger(log_file)
 
 

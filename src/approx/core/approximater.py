@@ -12,10 +12,14 @@ class Approximater(metaclass=ABCMeta):
 
     @property
     def tgt_type(self):
+        if isinstance(self._tgt_type, type):
+            return self._tgt_type
         return LAYER.get(self._tgt_type)
 
     @property
     def src_type(self):
+        if isinstance(self._src_type, type):
+            return self._src_type
         return LAYER.get(self._src_type)
 
     @abstractmethod
@@ -39,6 +43,14 @@ class Approximater(metaclass=ABCMeta):
     @abstractmethod
     def optimize(self, sub: Substitution):
         pass
+
+    @abstractmethod
+    def _postprocess(self, sub: Substitution):
+        pass
+
+    def postprocess(self, sub: Substitution) -> nn.Module:
+        self._postprocess(sub)
+        return sub.new_module
 
 
 APP = Registry()
