@@ -1,6 +1,9 @@
 import torch
+import torchvision
 from torch import nn
 from torch.profiler import profile, ProfilerActivity
+from torchvision import transforms
+from ptflops import get_model_complexity_info
 
 from .base import BaseRunner
 from approx.utils.logger import get_logger
@@ -23,14 +26,38 @@ class ClassInference(BaseRunner):
         self.filters = [build_filter(f_cfg) for f_cfg in cfg.filters]
         self.ckpt_path = os.path.join(cfg.work_dir, "opt.pth")
 
-    def profile(self, model: nn.Module):
+    def profile(self, model: nn.Module, desc: str):
         x = torch.randn(16, 3, 224, 224).cuda()
         model = model.cuda()
         model.eval()
         model(x)  # warm up
         with profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA], record_shapes=True) as prof:
             model(x)
-        print(prof.key_averages(group_by_input_shape=True).table(sort_by="cuda_time_total", row_limit=10))
+        get_logger().info(
+            f"{desc}:\n{prof.key_averages(group_by_input_shape=True).table(sort_by='cuda_time_total', row_limit=10)}")
+
+    def classify(self, model: nn.Module, desc: str):
+        transform = transforms.Compose([
+            transforms.Resize(256),
+            transforms.CenterCrop(224),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ])
+        test_data = torchvision.datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
+        testloader = torch.utils.data.DataLoader(test_data, batch_size=4, shuffle=False, num_workers=4)
+        device = self.cfg.device
+        model = model.to(device)
+        model.eval()
+        total = 0
+        correct = 0
+        for data in testloader:
+            images, labels = data[0].to(device), data[1].to(device)
+            outputs = model(images)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+        acc1 = 100 * correct / total
+        get_logger().info(f"{desc}: Acc1={acc1}%")
 
     def run(self):
         get_logger().info('Register...')
@@ -44,9 +71,17 @@ class ClassInference(BaseRunner):
             src = self.model.get_switchable_module(idx)
             self.model.set_switchable_module(idx, self.app.initialize, src=src)
 
-        # load_model(self.model, self.ckpt_path)
+        self.ori_model.init_weights()
+        load_model(self.model, self.ckpt_path)
 
         if self.cfg.device == 'cuda':
-            get_logger().info('Test Inference time')
-            self.profile(self.ori_model)
-            self.profile(self.model)
+            self.profile(self.ori_model, 'Oridinary Model')
+            self.profile(self.model, 'New Model')
+
+        macs, params = get_model_complexity_info(self.ori_model, (3, 224, 224))
+        get_logger().info(f'Ordinary Model: macs={macs:<30}, params={params:<8}')
+        macs, params = get_model_complexity_info(self.model, (3, 224, 224))
+        get_logger().info(f'New Model: macs={macs:<30}, params={params:<8}')
+
+        self.classify(self.ori_model, 'Oridinary Model')
+        self.classify(self.model, 'New Model')

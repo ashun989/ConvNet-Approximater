@@ -5,12 +5,12 @@ model = dict(
 
 app = dict(
     type="LowRankExpV1",
-    max_iter=3,
+    max_iter=5,
     min_lmda=0.0001,
     max_lmda=0.0001,
     lmda_length=1,
     # num_bases=(48, 144, 288, 192)
-    num_bases=(2, 4, 8, 8)
+    num_bases=(32,)
 )
 
 filters = [
@@ -19,6 +19,6 @@ filters = [
     ),
     dict(
         type="IndicesFilter",
-        indices=(2, 3, 4, 5)
+        indices=(2,)
     )
 ]
