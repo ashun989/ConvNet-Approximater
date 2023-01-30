@@ -16,3 +16,9 @@ def check_file(file, ext=None):
             # warnings.warn(f"the type of {file} must be in {ext}")
             return False
     return True
+
+
+def to_2tuple(x) -> tuple:
+    if isinstance(x, tuple):
+        return x[:2]
+    return x, x

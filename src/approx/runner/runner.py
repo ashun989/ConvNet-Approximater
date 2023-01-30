@@ -5,15 +5,17 @@ from approx.models import build_model
 from approx.core import build_app
 from approx.filters import build_filter
 from approx.utils.logger import get_logger
-from approx.utils.serialize import save_model
+from approx.utils.serialize import save_model, load_model
+from .base import BaseRunner
 
 
-class Runner:
+class Runner(BaseRunner):
     def __init__(self):
         cfg = get_cfg()
         print_cfg()
         save_cfg(os.path.join(cfg.work_dir, "cfg.yaml"))
-        self.model = build_model(cfg.model, device=cfg.device)
+        self.cfg = cfg
+        self.model = build_model(cfg.model)
         self.app = build_app(cfg.app)
         self.filters = [build_filter(f_cfg) for f_cfg in cfg.filters]
         self.ckpt_path = os.path.join(cfg.work_dir, "opt.pth")
@@ -27,6 +29,7 @@ class Runner:
             f"There are {self.model.length_switchable} switchable submodules: {self.model._switchable_names}")
 
         get_logger().info('Initialize...')
+        self.model.init_weights()
         for idx in range(self.model.length_switchable):
             src = self.model.get_switchable_module(idx)
             self.model.set_switchable_module(idx, self.app.initialize, src=src)

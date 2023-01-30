@@ -9,9 +9,14 @@ from approx.filters import ModuleFilter
 
 
 class SwitchableModel(nn.Module):
-    def __init__(self):
+    def __init__(self, init_cfg):
         super(SwitchableModel, self).__init__()
         self._switchable_names: List[str] = []
+        self.init_cfg = init_cfg
+
+    def init_weights(self):
+        if isinstance(self.init_cfg, str):
+            load_model(self, self.init_cfg)
 
     def register_switchable(self, src_type: type, filters: List[ModuleFilter]):
         cache = [(name, module) for name, module in self.named_children()]
@@ -53,8 +58,6 @@ class SwitchableModel(nn.Module):
 MODEL = Registry()
 
 
-def build_model(cfg: dict, device:str) -> SwitchableModel:
-    ckpt_file = cfg.pop("checkpoint", None)
+def build_model(cfg: dict) -> SwitchableModel:
     model = build_from_cfg(cfg, MODEL)
-    load_model(model, ckpt_file, device)
     return model

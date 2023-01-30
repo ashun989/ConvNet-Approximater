@@ -17,8 +17,10 @@ class LowRankExpV1(Approximater):
     _src_type = nn.Conv2d
     _tgt_type = "LowRankExpConvV1"
 
-    def __init__(self, speed_ratio, max_iter, lmda_length, min_lmda, max_lmda, inc_rate=1.5):
-        self.speed_ratio = speed_ratio
+    def __init__(self, num_bases, max_iter, lmda_length, min_lmda, max_lmda, inc_rate=1.5, deploy=False):
+        super(LowRankExpV1, self).__init__(deploy=deploy)
+        self.num_bases = num_bases
+        self.curr = 0
         self.max_iter = max_iter
         assert max_lmda >= min_lmda >= 0.0
         self.lmda_list = np.logspace(0, inc_rate, lmda_length + 1)[1:] - 1
@@ -29,13 +31,13 @@ class LowRankExpV1(Approximater):
         # Ordinary Conv: O(d^2CN)
         # Scheme1 Conv: O(MC(2d+N))
 
-        tmp1 = src.kernel_size[0] * src.kernel_size[1] * src.out_channels
-        tmp2 = src.kernel_size[0] + src.kernel_size[1] + src.out_channels
-        num_base = int(tmp1 / (self.speed_ratio * tmp2))
-        spr = tmp1 / (num_base * tmp2)
-
-        get_logger().info(f"theoretical speed-up ratio: {spr} (required: {self.speed_ratio}), num_base: {num_base}")
-
+        # tmp1 = src.kernel_size[0] * src.kernel_size[1] * src.out_channels
+        # tmp2 = src.kernel_size[0] + src.kernel_size[1] + src.out_channels
+        # num_base = int(tmp1 / (self.speed_ratio * tmp2))
+        # spr = tmp1 / (num_base * tmp2)
+        # get_logger().info(f"theoretical speed-up ratio: {spr} (required: {self.speed_ratio}), num_base: {num_base}")
+        num_base = self.num_bases[self.curr]
+        self.curr += 1
         return dict(
             in_channels=src.in_channels,
             out_channels=src.out_channels,
@@ -72,17 +74,17 @@ class LowRankExpV1(Approximater):
                        version: bool = True):
         if version:
             bases = cp.Variable((num_bases, filter_size ** 2))
-            weights = cp.Parameter((num_filters, num_bases))
+            weights = cp.Parameter((in_channels * num_filters, num_bases))
         else:
             bases = cp.Parameter((num_bases, filter_size ** 2))
-            weights = cp.Variable((num_filters, num_bases))
+            weights = cp.Variable((in_channels * num_filters, num_bases))
         lmda = cp.Parameter(nonneg=True)
         nuc_list = []
         for m in range(num_bases):
             nuc_list.append(cp.normNuc(cp.reshape(bases[m], (filter_size, filter_size))))
-        pred = weights @ bases  # (N, d^2)
-        vpred = cp.vstack([pred] * in_channels)  # (C*N, d^2)
-        error = cp.sum(cp.norm2(filters - vpred, axis=1))
+        pred = weights @ bases  # (C*N, d^2)
+        # error = cp.sum(cp.norm2(filters - pred, axis=1))
+        error = cp.norm2(filters - pred)
         norm = lmda * sum(nuc_list)
         obj = cp.Minimize(error + norm)
         return cp.Problem(obj), dict(bases=bases, weights=weights, lmda=lmda, error=error, norm=norm, obj=obj)
@@ -107,7 +109,7 @@ class LowRankExpV1(Approximater):
         #     logger.warn("problem1 is not DPP!")
         # if not problem2.is_dcp(dpp=True):
         #     logger.warn("problem2 is not DPP!")
-        cache1['weights'].value = np.ones((N, M)) / M
+        cache1['weights'].value = np.ones((N*C, M)) / M
         # TODO: choose a better solver
         for e, lmda in enumerate(self.lmda_list):
             cache1['lmda'].value = lmda
@@ -127,8 +129,16 @@ class LowRankExpV1(Approximater):
                     break
                 last_err = total_err
         tmp = torch.from_numpy(cache1['bases'].value)  # (M, d^2)
-        tgt.s_conv.weight.data = tmp.reshape(M, d, d)
-        tgt.d_conv.weight.data[:, :, 0, 0] = torch.from_numpy(cache2['weights'].value)
+        tmp = tmp.reshape(M, d, d)
+        u, s, vh = torch.linalg.svd(tmp, full_matrices=False)  # (M, d, k), (M, k), (M, k, d)
+        s = torch.sqrt(s)
+        u = (u[:, :, 0] * s[:, 0][:, None])[:, :, None]  # (M, d, 1)
+        vh = (vh[:, 0, :] * s[:, 0][:, None])[:, None, :]  # (M, 1, d)
+        tgt.s_conv.v_conv.weight.data = u.unsqueeze(1).expand(-1, C, -1, -1)  # (M, C, d, 1)
+        tgt.s_conv.h_conv.weight.data = vh.unsqueeze(1)  # (M, 1, 1, d)
+        tmp = torch.from_numpy(cache2['weights'].value)
+        # TODO: (C*N, M) ==> (N, M) ???
+        tgt.d_conv.weight.data[:, :, 0, 0] = tmp
 
     def _postprocess(self, sub: Substitution):
         src: nn.Conv2d = sub.old_module

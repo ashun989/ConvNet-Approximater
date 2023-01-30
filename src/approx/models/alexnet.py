@@ -6,8 +6,8 @@ from .switchable import SwitchableModel, MODEL
 
 @MODEL.register_module()
 class AlexNet(SwitchableModel):
-    def __init__(self, num_classes: int = 10, dropout: float = 0.5) -> None:
-        super().__init__()
+    def __init__(self, num_classes: int = 10, dropout: float = 0.5, init_cfg=None) -> None:
+        super().__init__(init_cfg=init_cfg)
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=11, stride=4, padding=2),
             nn.ReLU(inplace=True),

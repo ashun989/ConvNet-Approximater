@@ -1,8 +1,8 @@
 # Custom
 data
 pretrained
-tests
 work_dir
+trainer
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

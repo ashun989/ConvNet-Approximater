@@ -1,6 +1,6 @@
 from abc import ABCMeta, abstractmethod
 from torch import nn
-from typing import Type
+from typing import Union
 
 from approx.utils.registry import Registry, build_from_cfg
 from approx.layers import build_layer, Substitution, LAYER
@@ -9,6 +9,9 @@ from approx.layers import build_layer, Substitution, LAYER
 class Approximater(metaclass=ABCMeta):
     _src_type = ""
     _tgt_type = ""
+
+    def __init__(self, deploy=False):
+        self.deploy = deploy
 
     @property
     def tgt_type(self):
@@ -30,12 +33,14 @@ class Approximater(metaclass=ABCMeta):
     def _fix_substitution(self, sub: Substitution):
         pass
 
-    def initialize(self, src: nn.Module) -> Substitution:
+    def initialize(self, src: nn.Module) -> Union[Substitution, nn.Module]:
         assert isinstance(src, self.src_type)
         tgt_args = self._get_tgt_args(src)
         cfg = dict(type=self.tgt_type)
         cfg.update(tgt_args)
         tgt = build_layer(cfg)
+        if self.deploy:
+            return tgt
         sub = Substitution(src, tgt)
         self._fix_substitution(sub)
         return sub
@@ -56,5 +61,5 @@ class Approximater(metaclass=ABCMeta):
 APP = Registry()
 
 
-def build_app(cfg: dict) -> Approximater:
-    return build_from_cfg(cfg, APP)
+def build_app(cfg: dict, **kwargs) -> Approximater:
+    return build_from_cfg(cfg, APP, **kwargs)

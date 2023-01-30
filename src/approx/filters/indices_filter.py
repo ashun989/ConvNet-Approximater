@@ -9,7 +9,7 @@ from .module_filter import ModuleFilter, FILTER
 class IndicesFilter(ModuleFilter):
     def __init__(self, indices: Tuple[int, ...]):
         self.records = np.zeros(max(indices) + 1, np.bool_)
-        self.records[indices] = True
+        self.records[list(indices)] = True
         self.curr = 1
 
     def filter(self, module: nn.Module) -> bool:
