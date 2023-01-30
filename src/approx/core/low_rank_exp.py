@@ -52,19 +52,6 @@ class LowRankExpV1(Approximater):
         tgt: LowRankExpConvV1 = sub.new_module
         tgt.bias.data = src.bias.data
 
-    def filter_construct_error(self, src: nn.Conv2d, tgt: LowRankExpConvV1, lmda: float):
-        W = src.weight.data  # (N, C, d, d)
-        C = src.weight.data.shape[1]
-        alpha = tgt.d_conv.weight.data  # (N, M, 1, 1)
-        alpha = alpha.reshape(*alpha.shape[:2])  # (N, M)
-        bases = tgt.s_conv.weight.data  # (M, C, d, d)
-        bases = bases.permute(2, 3, 0, 1)  # (d, d, M, C)
-        _W = torch.matmul(alpha, bases).permute(2, 3, 0, 1)  # (N, C, d, d)
-        err = torch.sum(torch.square(torch.linalg.norm(W - _W, dim=(2, 3), ord=2)))
-        err2 = lmda * torch.sum(torch.linalg.norm(bases[..., 0], dim=(0, 1), ord='nuc'))
-        get_logger().debug(f"L2 error: {err}, nuclear norm: {err2}")
-        return err + err2
-
     def _get_bi_object(self,
                        filters: np.ndarray,  # (CN, d^2)
                        in_channels: int,
@@ -83,8 +70,8 @@ class LowRankExpV1(Approximater):
         for m in range(num_bases):
             nuc_list.append(cp.normNuc(cp.reshape(bases[m], (filter_size, filter_size))))
         pred = weights @ bases  # (C*N, d^2)
-        # error = cp.sum(cp.norm2(filters - pred, axis=1))
-        error = cp.norm2(filters - pred)
+        error = cp.sum(cp.norm2(filters - pred, axis=1))
+        # error = cp.norm2(filters - pred)
         norm = lmda * sum(nuc_list)
         obj = cp.Minimize(error + norm)
         return cp.Problem(obj), dict(bases=bases, weights=weights, lmda=lmda, error=error, norm=norm, obj=obj)
@@ -109,8 +96,11 @@ class LowRankExpV1(Approximater):
         #     logger.warn("problem1 is not DPP!")
         # if not problem2.is_dcp(dpp=True):
         #     logger.warn("problem2 is not DPP!")
-        cache1['weights'].value = np.ones((N*C, M)) / M
+        # cache1['bases'].value = np.random.rand(M, d**2)
+        cache1['weights'].value = np.ones((N * C, M)) / M
+        # cache2['weights'].value = np.ones((N*C, M)) / M
         # TODO: choose a better solver
+        logger.info(f"lambda list: {self.lmda_list}")
         for e, lmda in enumerate(self.lmda_list):
             cache1['lmda'].value = lmda
             cache2['lmda'].value = lmda
@@ -118,16 +108,20 @@ class LowRankExpV1(Approximater):
                 # Fix weights, update bases
                 problem1.solve(ignore_dpp=True)
                 total_err = cache1['obj'].value
-                logger.info(f"[lamda{e}: {lmda}]({iter}/{self.max_iter})[1], total error: {total_err}")
+                logger.info(f"[lamda: {lmda}]({iter}/{self.max_iter})[1], total error: {total_err}")
                 cache2['bases'].value = cache1['bases'].value
                 # Fix bases, update weights
                 problem2.solve(ignore_dpp=True)
                 total_err = cache2['obj'].value
-                logger.info(f"[lamda{e}: {lmda}]({iter}/{self.max_iter})[2], total error: {total_err}")
+                logger.info(f"[lamda: {lmda}]({iter}/{self.max_iter})[2], total error: {total_err}")
                 cache1['weights'].value = cache2['weights'].value
                 if abs(last_err - total_err) < epsilon:
                     break
                 last_err = total_err
+            svdvals = torch.linalg.svdvals(torch.from_numpy(cache1['bases'].value).reshape(M, d, d))
+            svdvals = svdvals**2
+            energy = torch.mean(svdvals[:, 0] / torch.sum(svdvals, dim=1))
+            logger.info(f"energy = {energy.item()}")
         tmp = torch.from_numpy(cache1['bases'].value)  # (M, d^2)
         tmp = tmp.reshape(M, d, d)
         u, s, vh = torch.linalg.svd(tmp, full_matrices=False)  # (M, d, k), (M, k), (M, k, d)
@@ -136,11 +130,10 @@ class LowRankExpV1(Approximater):
         vh = (vh[:, 0, :] * s[:, 0][:, None])[:, None, :]  # (M, 1, d)
         tgt.s_conv.v_conv.weight.data = u.unsqueeze(1).expand(-1, C, -1, -1)  # (M, C, d, 1)
         tgt.s_conv.h_conv.weight.data = vh.unsqueeze(1)  # (M, 1, 1, d)
-        tmp = torch.from_numpy(cache2['weights'].value)
-        # TODO: (C*N, M) ==> (N, M) ???
+        tmp = torch.from_numpy(cache2['weights'].value)  # (C*N, M)
+        tmp = torch.sum(tmp.reshape(C, N, M), dim=0)
         tgt.d_conv.weight.data[:, :, 0, 0] = tmp
 
+
     def _postprocess(self, sub: Substitution):
-        src: nn.Conv2d = sub.old_module
-        tgt: LowRankExpConvV1 = sub.new_module
-        tgt.deploy()
+        pass
