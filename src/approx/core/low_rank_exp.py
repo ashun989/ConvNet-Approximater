@@ -25,6 +25,7 @@ class LowRankExpV1(Approximater):
         assert max_lmda >= min_lmda >= 0.0
         self.lmda_list = np.logspace(0, inc_rate, lmda_length + 1)[1:] - 1
         self.lmda_list = self.lmda_list / self.lmda_list[-1] * (max_lmda - min_lmda) + min_lmda
+        # self.constrain_weight = constrain_weight
 
     def _get_tgt_args(self, src: nn.Conv2d) -> dict:
 
@@ -45,7 +46,7 @@ class LowRankExpV1(Approximater):
             kernel_size=src.kernel_size,
             stride=src.stride,
             padding=src.padding,
-            decomp=self.deploy
+            decomp=False
         )
 
     def _fix_substitution(self, sub: Substitution):
@@ -60,16 +61,16 @@ class LowRankExpV1(Approximater):
                        filter_size: int,
                        num_bases: int,
                        version: bool = True):
-        # con = []
+        constraints = None
         if version:
             bases = cp.Variable((num_bases, filter_size ** 2))
-            # weights = cp.Parameter((num_filters * in_channels, num_bases), nonneg=True)
-            weights = cp.Parameter((num_filters * in_channels, num_bases))
+            weights = cp.Parameter((num_filters * in_channels, num_bases), nonneg=False)
         else:
             bases = cp.Parameter((num_bases, filter_size ** 2))
             weights = cp.Variable((num_filters * in_channels, num_bases))
-            # cnst = np.ones((num_filters * in_channels))
-            # con.extend([weights >= 0, cp.sum(weights, axis=1) == 1])
+            # if self.constrain_weight:
+            #     # cnst = np.ones((num_filters * in_channels))
+            #     constraints = [weights >= 0, cp.sum(weights, axis=1) == 1]
         lmda = cp.Parameter(nonneg=True)
         nuc_list = []
         for m in range(num_bases):
@@ -79,7 +80,7 @@ class LowRankExpV1(Approximater):
         error = cp.sum(cp.norm2(filters - pred, axis=1))
         norm = lmda * sum(nuc_list)
         obj = cp.Minimize(error + norm)
-        return cp.Problem(obj), dict(bases=bases, weights=weights, lmda=lmda, error=error, norm=norm, obj=obj)
+        return cp.Problem(obj, constraints), dict(bases=bases, weights=weights, lmda=lmda, error=error, norm=norm, obj=obj)
 
     def optimize(self, sub: Substitution):
         logger = get_logger()

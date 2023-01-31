@@ -26,9 +26,9 @@ def parse_args():
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     paths = os.path.split(args.config)
     config_name = os.path.splitext(paths[-1])[0]
-    work_dir = os.path.join("work_dir", config_name)
+    work_dir = os.path.join("work_dir", config_name, datetime.now().strftime('%Y%m%d%H%M%S'))
     os.makedirs(work_dir, exist_ok=True)
-    log_name = f"{'class'}-{datetime.now().strftime('%Y%m%d%H%M%S')}.log"
+    log_name = f"class.log"
     log_file = os.path.join(work_dir, log_name)
     build_logger(log_file)
     update_cfg(work_dir=work_dir, device=device, log_file=log_file)
@@ -42,7 +42,7 @@ class ClassInference(BaseRunner):
         self.ori_model = build_model(cfg.model)
         self.app = build_app(cfg.app, deploy=True)
         self.filters = [build_filter(f_cfg) for f_cfg in cfg.filters]
-        self.ckpt_path = os.path.join(cfg.work_dir, "opt.pth")
+        self.ckpt_path = os.path.join(cfg.work_dir, "opt-b.pth")
 
     def profile(self, model: nn.Module, desc: str):
         x = torch.randn(16, 3, 224, 224).cuda()
@@ -89,20 +89,29 @@ class ClassInference(BaseRunner):
             src = self.model.get_switchable_module(idx)
             self.model.set_switchable_module(idx, self.app.initialize, src=src)
 
-        # self.ori_model.init_weights()
-        # load_model(self.model, self.ckpt_path)
+        self.ori_model.init_weights()
+        load_model(self.model, self.ckpt_path)
 
-        if self.cfg.device == 'cuda':
-            self.profile(self.ori_model, 'Old Model')
-            self.profile(self.model, 'New Model')
-
-        macs, params = get_model_complexity_info(self.ori_model, (3, 224, 224))
-        get_logger().info(f'Old Model: macs={macs:<12}, params={params:<8}')
-        macs, params = get_model_complexity_info(self.model, (3, 224, 224))
-        get_logger().info(f'New Model: macs={macs:<12}, params={params:<8}')
+        # if self.cfg.device == 'cuda':
+        #     self.profile(self.ori_model, 'Old Model')
+        #     self.profile(self.model, 'New Model')
+        #
+        # macs, params = get_model_complexity_info(self.ori_model, (3, 224, 224))
+        # get_logger().info(f'Old Model: macs={macs:<12}, params={params:<8}')
+        # macs, params = get_model_complexity_info(self.model, (3, 224, 224))
+        # get_logger().info(f'New Model: macs={macs:<12}, params={params:<8}')
 
         # self.classify(self.ori_model, 'Oridinary Model')
-        # self.classify(self.model, 'New Model')
+
+        print(self.model)
+        self.classify(self.model, 'New Model (Before PostProcess)')
+
+        for idx in range(self.model.length_switchable):
+            src = self.model.get_switchable_module(idx)
+            src.decomp()
+
+        print(self.model)
+        self.classify(self.model, 'New Model (After PostProcess)')
 
 
 def main():
