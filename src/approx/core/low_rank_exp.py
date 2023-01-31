@@ -78,8 +78,7 @@ class LowRankExpV1(Approximater):
         # error = cp.norm2(filters - pred)  # matrix norm2 is hard to optimize?
         error = cp.sum(cp.norm2(filters - pred, axis=1))
         norm = lmda * sum(nuc_list)
-        # obj = cp.Minimize(error + norm)
-        obj = cp.Minimize(error)
+        obj = cp.Minimize(error + norm)
         return cp.Problem(obj), dict(bases=bases, weights=weights, lmda=lmda, error=error, norm=norm, obj=obj)
 
     def optimize(self, sub: Substitution):
@@ -90,7 +89,7 @@ class LowRankExpV1(Approximater):
         last_err = 0
         W = src.weight.data.numpy()  # (N, C, d, d)
         N, C, d = W.shape[:3]
-        M = tgt.d_conv.in_channels
+        M = tgt.num_base
         W = W.reshape(N * C, d * d)
         problem1, cache1 = self._get_bi_object(W, C, N, d, M, True)
         problem2, cache2 = self._get_bi_object(W, C, N, d, M, False)
@@ -106,12 +105,12 @@ class LowRankExpV1(Approximater):
             cache2['lmda'].value = lmda
             for iter in range(1, self.max_iter + 1):
                 # Fix weights, update bases
-                problem1.solve(ignore_dpp=True)
+                problem1.solve(ignore_dpp=True, verbose=True)
                 total_err = cache1['obj'].value
                 logger.info(f"[lamda: {lmda}]({iter}/{self.max_iter})[1], total error: {total_err}")
                 cache2['bases'].value = cache1['bases'].value
                 # Fix bases, update weights
-                problem2.solve(ignore_dpp=True)
+                problem2.solve(ignore_dpp=True, verbose=True)
                 total_err = cache2['obj'].value
                 logger.info(f"[lamda: {lmda}]({iter}/{self.max_iter})[2], total error: {total_err}")
                 cache1['weights'].value = cache2['weights'].value
