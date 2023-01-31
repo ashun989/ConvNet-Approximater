@@ -44,7 +44,8 @@ class LowRankExpV1(Approximater):
             num_base=num_base,
             kernel_size=src.kernel_size,
             stride=src.stride,
-            padding=src.padding
+            padding=src.padding,
+            decomp=self.deploy
         )
 
     def _fix_substitution(self, sub: Substitution):
@@ -53,27 +54,32 @@ class LowRankExpV1(Approximater):
         tgt.bias.data = src.bias.data
 
     def _get_bi_object(self,
-                       filters: np.ndarray,  # (CN, d^2)
+                       filters: np.ndarray,
                        in_channels: int,
                        num_filters: int,
                        filter_size: int,
                        num_bases: int,
                        version: bool = True):
+        # con = []
         if version:
             bases = cp.Variable((num_bases, filter_size ** 2))
-            weights = cp.Parameter((in_channels * num_filters, num_bases))
+            # weights = cp.Parameter((num_filters * in_channels, num_bases), nonneg=True)
+            weights = cp.Parameter((num_filters * in_channels, num_bases))
         else:
             bases = cp.Parameter((num_bases, filter_size ** 2))
-            weights = cp.Variable((in_channels * num_filters, num_bases))
+            weights = cp.Variable((num_filters * in_channels, num_bases))
+            # cnst = np.ones((num_filters * in_channels))
+            # con.extend([weights >= 0, cp.sum(weights, axis=1) == 1])
         lmda = cp.Parameter(nonneg=True)
         nuc_list = []
         for m in range(num_bases):
             nuc_list.append(cp.normNuc(cp.reshape(bases[m], (filter_size, filter_size))))
-        pred = weights @ bases  # (C*N, d^2)
+        pred = weights @ bases  # (NC, d^2)
+        # error = cp.norm2(filters - pred)  # matrix norm2 is hard to optimize?
         error = cp.sum(cp.norm2(filters - pred, axis=1))
-        # error = cp.norm2(filters - pred)
         norm = lmda * sum(nuc_list)
-        obj = cp.Minimize(error + norm)
+        # obj = cp.Minimize(error + norm)
+        obj = cp.Minimize(error)
         return cp.Problem(obj), dict(bases=bases, weights=weights, lmda=lmda, error=error, norm=norm, obj=obj)
 
     def optimize(self, sub: Substitution):
@@ -85,17 +91,11 @@ class LowRankExpV1(Approximater):
         W = src.weight.data.numpy()  # (N, C, d, d)
         N, C, d = W.shape[:3]
         M = tgt.d_conv.in_channels
-        W = W.transpose(1, 0, 2, 3)  # (C, N, d, d)
-        W = W.reshape(C * N, d * d)
+        W = W.reshape(N * C, d * d)
         problem1, cache1 = self._get_bi_object(W, C, N, d, M, True)
         problem2, cache2 = self._get_bi_object(W, C, N, d, M, False)
         assert problem1.is_dcp(), "problem1 is not DCP!"
         assert problem2.is_dcp(), "problem2 is not DCP!"
-        # too many paramters to use DPP
-        # if not problem1.is_dcp(dpp=True):
-        #     logger.warn("problem1 is not DPP!")
-        # if not problem2.is_dcp(dpp=True):
-        #     logger.warn("problem2 is not DPP!")
         # cache1['bases'].value = np.random.rand(M, d**2)
         cache1['weights'].value = np.ones((N * C, M)) / M
         # cache2['weights'].value = np.ones((N*C, M)) / M
@@ -119,21 +119,14 @@ class LowRankExpV1(Approximater):
                     break
                 last_err = total_err
             svdvals = torch.linalg.svdvals(torch.from_numpy(cache1['bases'].value).reshape(M, d, d))
-            svdvals = svdvals**2
+            svdvals = svdvals ** 2
             energy = torch.mean(svdvals[:, 0] / torch.sum(svdvals, dim=1))
-            logger.info(f"energy = {energy.item()}")
-        tmp = torch.from_numpy(cache1['bases'].value)  # (M, d^2)
-        tmp = tmp.reshape(M, d, d)
-        u, s, vh = torch.linalg.svd(tmp, full_matrices=False)  # (M, d, k), (M, k), (M, k, d)
-        s = torch.sqrt(s)
-        u = (u[:, :, 0] * s[:, 0][:, None])[:, :, None]  # (M, d, 1)
-        vh = (vh[:, 0, :] * s[:, 0][:, None])[:, None, :]  # (M, 1, d)
-        tgt.s_conv.v_conv.weight.data = u.unsqueeze(1).expand(-1, C, -1, -1)  # (M, C, d, 1)
-        tgt.s_conv.h_conv.weight.data = vh.unsqueeze(1)  # (M, 1, 1, d)
-        tmp = torch.from_numpy(cache2['weights'].value)  # (C*N, M)
-        tmp = torch.sum(tmp.reshape(C, N, M), dim=0)
-        tgt.d_conv.weight.data[:, :, 0, 0] = tmp
-
+            logger.info(f"PC Energy = {energy.item()}")
+        tmp = torch.from_numpy(cache1['bases'].value).reshape(M, d, d)  # (M, d, d)
+        tgt.s_conv.weight.data = tmp.unsqueeze(0).expand(C, -1, -1, -1).reshape(C * M, 1, d, d)
+        tmp = torch.from_numpy(cache2['weights'].value)  # (N*C, M)
+        tgt.d_conv.weight.data = tmp.reshape(N, C * M).unsqueeze(-1).unsqueeze(-1)  # (N, C*M, 1, 1)
 
     def _postprocess(self, sub: Substitution):
-        pass
+        tgt: LowRankExpConvV1 = sub.new_module
+        tgt.decomp()

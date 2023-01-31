@@ -7,13 +7,19 @@ from approx.utils.general import to_2tuple
 
 
 class SeparableConv(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int,
+    """
+    This is separable version of group convolution (in_channels=C, out_channels=M*C, groups=C)
+    """
+
+    def __init__(self, in_channels: int, num_bases: int,
                  kernel_size: tuple, stride: tuple, padding: tuple):
         super(SeparableConv, self).__init__()
-        self.v_conv = nn.Conv2d(in_channels, out_channels, (kernel_size[0], 1), (stride[0], 1), (padding[0], 0),
-                                bias=False)
-        self.h_conv = nn.Conv2d(out_channels, out_channels, (1, kernel_size[1]), (1, stride[1]), (0, padding[1]),
-                                bias=False, groups=out_channels)
+        self.v_conv = nn.Conv2d(in_channels, in_channels * num_bases, (kernel_size[0], 1), (stride[0], 1),
+                                (padding[0], 0),
+                                bias=False, groups=in_channels)
+        self.h_conv = nn.Conv2d(in_channels * num_bases, in_channels * num_bases, (1, kernel_size[1]), (1, stride[1]),
+                                (0, padding[1]),
+                                bias=False, groups=in_channels * num_bases)
 
     def forward(self, x):
         return self.h_conv(self.v_conv(x))
@@ -27,7 +33,7 @@ class LowRankExpConvV1(nn.Module):
 
     def __init__(self, in_channels: int, out_channels: int,
                  kernel_size: Union[int, tuple], stride: Union[int, tuple], padding: Union[int, tuple],
-                 num_base: int):
+                 num_base: int, decomp: bool = False):
         super(LowRankExpConvV1, self).__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
@@ -35,8 +41,12 @@ class LowRankExpConvV1(nn.Module):
         self.stride = to_2tuple(stride)
         self.padding = to_2tuple(padding)
         self.num_base = num_base
-        self.s_conv = SeparableConv(self.in_channels, self.num_base, self.kernel_size, self.stride, self.padding)
-        self.d_conv = nn.Conv2d(self.num_base, self.out_channels, 1)
+        self.s_conv = SeparableConv(self.in_channels, self.num_base, self.kernel_size, self.stride,
+                                    self.padding) if decomp else nn.Conv2d(self.in_channels,
+                                                                           self.in_channels * self.num_base,
+                                                                           self.kernel_size, self.stride, self.padding,
+                                                                           groups=self.in_channels)
+        self.d_conv = nn.Conv2d(self.in_channels * self.num_base, self.out_channels, 1)
 
     def forward(self, x):
         return self.d_conv(self.s_conv(x))
@@ -45,15 +55,15 @@ class LowRankExpConvV1(nn.Module):
     def bias(self):
         return self.d_conv.bias
 
-    # def deploy(self):
-    #     if isinstance(self.s_conv, nn.Conv2d):
-    #         u, s, vh = torch.linalg.svd(self.s_conv.weight, full_matrices=False)
-    #         s = torch.sqrt(s)
-    #         sep_conv = SeparableConv(self.s_conv.in_channels, self.s_conv.out_channels,
-    #                                  self.s_conv.kernel_size, self.s_conv.stride, self.s_conv.padding)
-    #         sep_conv.v_conv.weight.data = (s[..., 0].unsqueeze(-1) * u[..., :, 0]).unsqueeze(-1)
-    #         sep_conv.h_conv.weight.data = (s[..., 0].unsqueeze(-1) * vh[..., 0, :]).unsqueeze(-2)
-    #         self.s_conv = sep_conv
+    def decomp(self):
+        if isinstance(self.s_conv, nn.Conv2d):
+            s_conv = SeparableConv(self.in_channels, self.num_base, self.kernel_size, self.stride, self.padding)
+            u, s, vh = torch.linalg.svd(self.s_conv.weight.data,
+                                        full_matrices=False)  # (MC, 1, d, k), (MC, 1, k), (MC, 1, k, d)
+            s = torch.sqrt(s)
+            s_conv.v_conv.weight.data = (u[..., 0] * s[..., 0][..., None])[..., None]  # (MC, 1, d, 1)
+            s_conv.h_conv.weight.data = (vh[..., 0, :] * s[..., 0][..., None])[..., None, :]  # (MC, 1, 1, d)
+            self.s_conv = s_conv
 
 
 @LAYER.register_module()

@@ -1,57 +1,58 @@
-import matplotlib.pyplot as plt
 import torch
-
-from approx.layers import LowRankExpConvV1
-from torch import nn
-import time
+import torch.nn.functional as F
 
 
-def inference(module, cfg):
-    repeat = 100
-    warmup = 10
-    x = torch.randn(*cfg).cpu()
-    module = module.cpu()
-    with torch.no_grad():
-        for _ in range(warmup):
-            module(x)
-        s_time = time.time()
-        for _ in range(repeat):
-            module(x)
-        rtn = (time.time() - s_time) / repeat
-    return rtn
+def compare4d(y1: torch.Tensor, y2: torch.Tensor):
+    assert y1.shape == y2.shape
+    B, C, H, W = y1.shape
+    y1 = y1.reshape(B, C, -1)
+    y2 = y2.reshape(B, C, -1)
+    a_err = torch.mean(torch.norm(y1 - y2, dim=(1, 2)))
+    ref = torch.mean(torch.norm(y1, dim=(1, 2)))
+    r_err = a_err / ref
+    print(f"abs err: {a_err.item()}, rel arr: {r_err.item()}")
+    assert r_err.item() < 1e-5
 
 
-def main():
-    b = 128
-    h = 224
-    w = 224
-    cfgs = [
-        [(3, 64, 11, 4, 2), (b, 3, h, w)],
-        [(64, 192, 5, 1, 2), (b, 64, h // 8, w // 8)],
-        [(192, 384, 3, 1, 1), (b, 192, h // 16, w // 16)],
-        [(384, 256, 3, 1, 1), (b, 384, h // 32, w // 32)],
-        [(256, 256, 3, 1, 1), (b, 256, h // 32, w // 32)]
-    ]
-    for cfg_idx, cfg in enumerate(cfgs, 1):
-        conv_cfg, x_cfg = cfg
-        print(f"conv {conv_cfg}, input {x_cfg}")
-        ord_conv = nn.Conv2d(*conv_cfg)
-        std_time = inference(ord_conv, x_cfg)
-        print(f"standard time: {std_time}")
-        min_m = conv_cfg[0] // 2
-        max_m = conv_cfg[0]
-        sprs = []
-        m_list = range(min_m, max_m, 10)
-        for m in m_list:
-            conv2 = LowRankExpConvV1(*conv_cfg, num_base=m, deploy=True)
-            m_time = inference(conv2, x_cfg)
-            print(f"num_bases: {m}, time: {m_time}")
-            sprs.append(std_time / m_time)
-        plt.plot(m_list, sprs)
-        plt.xlabel('num_bases')
-        plt.ylabel('speed-up ratios')
-        plt.show()
+def test_equality1():
+    B, C, H, W, N = 16, 256, 14, 14, 128
+    d = 3
+    x = torch.randn(B, C, H, W)
+    w = torch.rand(N, C, d, d)
+    y1 = F.conv2d(x, w) * 2
+    y2 = F.conv2d(x, w * 2)
+    compare4d(y1, y2)
 
 
-if __name__ == '__main__':
-    main()
+def test_equality2():
+    B, C, H, W, N, M = 16, 256, 14, 14, 128, 30
+    d = 3
+    x = torch.randn(B, C, H, W)
+    v_w = torch.randn(M * C, 1, d, 1)
+    h_w = torch.randn(M * C, 1, 1, d)
+    s_w = v_w @ h_w
+    y1 = F.conv2d(x, s_w, groups=C)
+    tmp = F.conv2d(x, h_w, groups=C)
+    y2 = F.conv2d(tmp, v_w, groups=M * C)
+    compare4d(y1, y2)
+
+
+def test_equality():
+    N = 128
+    C = 256
+    M = 64
+    d = 5
+    pad = 2
+    x = torch.randn(16, C, 14, 14)
+    weights = torch.rand(N * C, M)
+    bases = torch.rand(M, d ** 2)
+    W = weights @ bases
+    W = W.reshape(N, C, d, d)
+    y1 = F.conv2d(x, W)
+
+    s_w = bases.reshape(M, d, d).unsqueeze(0).expand(C, -1, -1, -1).reshape(C * M, 1, d, d)
+    tmp = F.conv2d(x, s_w, groups=C)  # C*M, H', W'
+    # d_w = torch.sum(weights.reshape(N, C, M), dim=1).unsqueeze(-1).unsqueeze(-1)  # (N, M, 1, 1)
+    d_w = weights.reshape(N, C * M).unsqueeze(-1).unsqueeze(-1)  # (N, C*M, 1, 1)
+    y2 = F.conv2d(tmp, d_w)
+    compare4d(y1, y2)

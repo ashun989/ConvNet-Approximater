@@ -39,6 +39,8 @@ class Runner(BaseRunner):
         for idx in range(self.model.length_switchable):
             self.app.optimize(self.model.get_switchable_module(idx))
 
+        save_model(self.model, os.path.join(self.cfg.work_dir, "opt-b.pth"))
+
         # Step3: Data-dependent optimize
         # TODO: Data-dependent optimize
 
