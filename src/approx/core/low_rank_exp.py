@@ -17,7 +17,7 @@ class LowRankExpV1(Approximater):
     _src_type = nn.Conv2d
     _tgt_type = "LowRankExpConvV1"
 
-    def __init__(self, num_bases, max_iter, lmda_length, min_lmda, max_lmda, inc_rate=1.5, deploy=False):
+    def __init__(self, num_bases, max_iter, lmda_length, min_lmda, max_lmda, inc_rate=1.5, do_decomp=False, deploy=False):
         super(LowRankExpV1, self).__init__(deploy=deploy)
         self.num_bases = num_bases
         self.curr = 0
@@ -25,6 +25,7 @@ class LowRankExpV1(Approximater):
         assert max_lmda >= min_lmda >= 0.0
         self.lmda_list = np.logspace(0, inc_rate, lmda_length + 1)[1:] - 1
         self.lmda_list = self.lmda_list / self.lmda_list[-1] * (max_lmda - min_lmda) + min_lmda
+        self.do_decomp = do_decomp
         # self.constrain_weight = constrain_weight
 
     def _get_tgt_args(self, src: nn.Conv2d) -> dict:
@@ -128,5 +129,6 @@ class LowRankExpV1(Approximater):
         tgt.d_conv.weight.data = tmp.reshape(N, C * M).unsqueeze(-1).unsqueeze(-1)  # (N, C*M, 1, 1)
 
     def _postprocess(self, sub: Substitution):
-        tgt: LowRankExpConvV1 = sub.new_module
-        tgt.decomp()
+        if self.do_decomp:
+            tgt: LowRankExpConvV1 = sub.new_module
+            tgt.decomp()

@@ -7,10 +7,9 @@ from ptflops import get_model_complexity_info
 import argparse
 from datetime import datetime
 
-from approx.runner import BaseRunner
 from approx.utils.logger import get_logger, build_logger
 from approx.utils.serialize import load_model
-from approx.utils.config import get_cfg, init_cfg, update_cfg
+from approx.utils.config import get_cfg, init_cfg, update_cfg, save_cfg
 from approx.models import build_model
 from approx.core import build_app
 from approx.filters import build_filter
@@ -21,6 +20,7 @@ import os
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True, type=str, help="Config file")
+    parser.add_argument("--ckpt", required=True, type=str, help="Checkpoint File")
     args = parser.parse_args()
     init_cfg(args.config)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -31,18 +31,19 @@ def parse_args():
     log_name = f"class.log"
     log_file = os.path.join(work_dir, log_name)
     build_logger(log_file)
-    update_cfg(work_dir=work_dir, device=device, log_file=log_file)
+    update_cfg(work_dir=work_dir, device=device, log_file=log_file, ckpt_file=args.ckpt)
 
 
-class ClassInference(BaseRunner):
+class ClassInference():
     def __init__(self):
         cfg = get_cfg()
+        save_cfg(os.path.join(cfg.work_dir, "cfg.yaml"))
         self.cfg = cfg
         self.model = build_model(cfg.model)
         self.ori_model = build_model(cfg.model)
         self.app = build_app(cfg.app, deploy=True)
         self.filters = [build_filter(f_cfg) for f_cfg in cfg.filters]
-        self.ckpt_path = os.path.join(cfg.work_dir, "opt-b.pth")
+        self.ckpt_path = cfg.ckpt_file
 
     def profile(self, model: nn.Module, desc: str):
         x = torch.randn(16, 3, 224, 224).cuda()
@@ -100,23 +101,24 @@ class ClassInference(BaseRunner):
         # get_logger().info(f'Old Model: macs={macs:<12}, params={params:<8}')
         # macs, params = get_model_complexity_info(self.model, (3, 224, 224))
         # get_logger().info(f'New Model: macs={macs:<12}, params={params:<8}')
-
+        #
         # self.classify(self.ori_model, 'Oridinary Model')
-
-        print(self.model)
-        self.classify(self.model, 'New Model (Before PostProcess)')
-
+        #
+        # self.classify(self.model, 'New Model (Before PostProcess)')
+        #
         for idx in range(self.model.length_switchable):
             src = self.model.get_switchable_module(idx)
             src.decomp()
+        #
+        # self.classify(self.model, 'New Model (After PostProcess)')
+        self.profile(self.model, 'New Model (After PostProcess)')
+        macs, params = get_model_complexity_info(self.model, (3, 224, 224))
+        get_logger().info(f'New Model (After PostProcess): macs={macs:<12}, params={params:<8}')
 
-        print(self.model)
-        self.classify(self.model, 'New Model (After PostProcess)')
 
 
 def main():
     parse_args()
-    cfg = get_cfg()
     runner = ClassInference()
     runner.run()
 

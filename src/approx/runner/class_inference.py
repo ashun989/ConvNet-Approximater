@@ -5,7 +5,6 @@ from torch.profiler import profile, ProfilerActivity
 from torchvision import transforms
 from ptflops import get_model_complexity_info
 
-
 from .base import BaseRunner
 from approx.utils.logger import get_logger
 from approx.utils.serialize import load_model
@@ -74,6 +73,8 @@ class ClassInference(BaseRunner):
 
         self.ori_model.init_weights()
         load_model(self.model, self.ckpt_path)
+        self.model.eval()
+        self.ori_model.eval()
 
         if self.cfg.device == 'cuda':
             self.profile(self.ori_model, 'Old Model')
