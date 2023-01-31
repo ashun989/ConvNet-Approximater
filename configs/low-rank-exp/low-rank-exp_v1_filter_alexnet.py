@@ -10,7 +10,8 @@ app = dict(
     max_lmda=0.0001,
     lmda_length=1,
     # num_bases=(48, 144, 288, 192)
-    num_bases=(48,),
+    num_bases=(8,),
+    do_decomp=False
 )
 
 filters = [

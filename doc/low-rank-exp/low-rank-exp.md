@@ -24,7 +24,9 @@ I have just done some simple experiments to verify the correctness. I use an Ale
 |:-----------------:|:--------:|:------:|:------:|:-------:|:---------:|:------------:|:-------------:|:--------:|
 | AlexNet(Ordinary) |    -     |   -    |   -    | 698.89  |   44.43   |     1205     |     1.899     |  78.38   |
 |     AlexNet-2     |  0.0001  |   2    |   48   | 963.15  |   44.79   |   938.730    |     5.003     |  78.31   |
-|  AlexNet-2-sep    |  0.0001  |   2    |   48   | 927.31  |   44.74   |     1202     |     5.378     |  27.29   |
+|     AlexNet-2     |  0.0001  |   2    |   8    | 556.31  |   44.23   |   964.955    |     2.425     |  72.29   |
+|   AlexNet-2-sep   |  0.0001  |   2    |   48   | 927.31  |   44.74   |     1202     |     5.378     |  27.29   |
+|   AlexNet-2-sep   |  0.0001  |   2    |   8    | 550.33  |   44.22   |     1279     |     2.264     |   9.68   |
 
 I only approximate the second convolutional layer of AlexNet(got AlexNet-2), which weight is a tensor of (64, 192, 3, 3). (In the order of (N, C, d, d)). I choose number of bases M = 48.
 Then I use fixed $\lambda = 0.0001$ to optimize.

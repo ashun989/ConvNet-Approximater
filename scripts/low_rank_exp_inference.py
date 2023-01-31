@@ -93,24 +93,24 @@ class ClassInference():
         self.ori_model.init_weights()
         load_model(self.model, self.ckpt_path)
 
-        # if self.cfg.device == 'cuda':
-        #     self.profile(self.ori_model, 'Old Model')
-        #     self.profile(self.model, 'New Model')
-        #
-        # macs, params = get_model_complexity_info(self.ori_model, (3, 224, 224))
-        # get_logger().info(f'Old Model: macs={macs:<12}, params={params:<8}')
-        # macs, params = get_model_complexity_info(self.model, (3, 224, 224))
-        # get_logger().info(f'New Model: macs={macs:<12}, params={params:<8}')
-        #
-        # self.classify(self.ori_model, 'Oridinary Model')
-        #
-        # self.classify(self.model, 'New Model (Before PostProcess)')
+        if self.cfg.device == 'cuda':
+            self.profile(self.ori_model, 'Old Model')
+            self.profile(self.model, 'New Model')
+
+        macs, params = get_model_complexity_info(self.ori_model, (3, 224, 224))
+        get_logger().info(f'Old Model: macs={macs:<12}, params={params:<8}')
+        macs, params = get_model_complexity_info(self.model, (3, 224, 224))
+        get_logger().info(f'New Model: macs={macs:<12}, params={params:<8}')
+
+        self.classify(self.ori_model, 'Oridinary Model')
+
+        self.classify(self.model, 'New Model (Before PostProcess)')
         #
         for idx in range(self.model.length_switchable):
             src = self.model.get_switchable_module(idx)
             src.decomp()
         #
-        # self.classify(self.model, 'New Model (After PostProcess)')
+        self.classify(self.model, 'New Model (After PostProcess)')
         self.profile(self.model, 'New Model (After PostProcess)')
         macs, params = get_model_complexity_info(self.model, (3, 224, 224))
         get_logger().info(f'New Model (After PostProcess): macs={macs:<12}, params={params:<8}')
