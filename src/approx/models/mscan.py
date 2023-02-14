@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 
-from approx.layers import DropPath, ParallelConv, LAYER
+from approx.layers import DropPath, MSCA
 from approx.models import MODEL, SwitchableModel
 
 
@@ -60,25 +60,6 @@ class FFN(nn.Module):
         x = self.act(x)
         x = self.fc2(x)
         return self.drop(x)
-
-
-@LAYER.register_module()
-class MSCA(nn.Module):
-    def __init__(self,
-                 num_channel,
-                 k1_size,
-                 k_sizes):
-        super(MSCA, self).__init__()
-
-        self.conv0 = nn.Conv2d(in_channels=num_channel, out_channels=num_channel,
-                               kernel_size=k1_size, padding=k1_size // 2, groups=num_channel)
-
-        paddings = [k // 2 for k in k_sizes]
-        self.sd_convs = ParallelConv(num_channel, k_sizes, paddings, len(k_sizes), True, True)
-        self.channel_mix = nn.Conv2d(num_channel, num_channel, 1)
-
-    def forward(self, x):
-        return x * self.channel_mix(self.sd_convs(self.conv0(x)))
 
 
 class SpatialAttention(nn.Module):

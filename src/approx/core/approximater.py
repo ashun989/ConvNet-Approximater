@@ -39,10 +39,10 @@ class Approximater(metaclass=ABCMeta):
         cfg = dict(type=self.tgt_type)
         cfg.update(tgt_args)
         tgt = build_layer(cfg)
-        if self.deploy:
-            return tgt
         sub = Substitution(src, tgt)
         self._fix_substitution(sub)
+        if self.deploy:
+            return sub.new_module
         return sub
 
     @abstractmethod

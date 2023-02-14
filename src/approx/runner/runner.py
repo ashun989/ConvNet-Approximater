@@ -5,7 +5,7 @@ from approx.models import build_model
 from approx.core import build_app
 from approx.filters import build_filter
 from approx.utils.logger import get_logger
-from approx.utils.serialize import save_model, load_model
+from approx.utils.serialize import save_model
 from .base import BaseRunner
 
 
@@ -39,13 +39,14 @@ class Runner(BaseRunner):
         for idx in range(self.model.length_switchable):
             self.app.optimize(self.model.get_switchable_module(idx))
 
-        # Step3: Data-dependent optimize
-        # TODO: Data-dependent optimize
-
-        # Step4: Post process
+        # Step3: Post process
         get_logger().info('PostProcess...')
         for idx in range(self.model.length_switchable):
             sub = self.model.get_switchable_module(idx)
             self.model.set_switchable_module(idx, self.app.postprocess, sub=sub)
 
         save_model(self.model, self.ckpt_path)
+
+        # Step4: Finetune
+
+

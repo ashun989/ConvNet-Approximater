@@ -1,3 +1,4 @@
+import torch
 from torch import nn
 
 
@@ -22,6 +23,7 @@ class ParallelConv(nn.Module):
 
     def __init__(self, dim, kernel_sizes, paddings, nbranch, all_bias, identity):
         super(ParallelConv, self).__init__()
+        self.dim = dim
         if isinstance(kernel_sizes, int):
             kernel_sizes = [kernel_sizes] * nbranch
         if isinstance(paddings, int):
@@ -43,3 +45,17 @@ class ParallelConv(nn.Module):
     def forward(self, x):
         tmp = [b(x) for b in self.branches]
         return sum(tmp)
+
+
+class FixPaddingBias(nn.Module):
+    def __init__(self, num_channels, padding):
+        super(FixPaddingBias, self).__init__()
+        self.p = padding
+        res = torch.randn(2, num_channels, padding)
+        self.res = nn.Parameter(res, requires_grad=True)
+
+    def forward(self, x):
+        p2 = min(x.shape[2], self.p)
+        x[:, :, :p2, :] += self.res[0, :, :p2].view(1, -1, p2, 1)
+        x[:, :, -p2:, :] += self.res[1, :, -p2:].view(1, -1, p2, 1)
+        return x
