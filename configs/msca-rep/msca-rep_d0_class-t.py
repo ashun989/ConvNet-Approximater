@@ -11,7 +11,7 @@ model = dict(
 app = dict(
     type="MscaRep",
     decomp=0,
-    fix=True
+    fix=False
 )
 
 filters = []
@@ -28,4 +28,4 @@ hooks = [
     )
 ]
 
-output_name = 'mscan_t_d0_fix.pth'
+output_name = 'mscan_t_d0.pth'
