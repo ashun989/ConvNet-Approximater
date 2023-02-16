@@ -21,7 +21,7 @@ class Runner(BaseRunner):
         self.cfg = cfg
         self.model = build_model(cfg.model)
         self.app = build_app(cfg.app, deploy=deploy)
-        self.filters = [build_filter(f_cfg) for f_cfg in cfg.filters]
+        self.filters = [build_filter(f_cfg) for f_cfg in cfg.filters] if 'filters' in cfg else []
         self.hooks: List[Hook] = []
         output_name = cfg.output_name if "output_name" in cfg else "opt.pth"
         self.output_path = os.path.join(cfg.work_dir, output_name)
@@ -29,6 +29,7 @@ class Runner(BaseRunner):
         if hasattr(cfg, "hooks"):
             for h_cfg in cfg.hooks:
                 self.register_hook(h_cfg)
+            get_logger().info(self.hook_info())
 
     def run(self):
         self.call_hook("before_run")

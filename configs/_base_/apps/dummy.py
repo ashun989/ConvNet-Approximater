@@ -1,0 +1,1 @@
+app = dict(type="Dummy")

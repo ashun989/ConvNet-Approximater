@@ -1,10 +1,12 @@
+from typing import Dict
+
 import torch
 from torch import nn
 import torch.nn.functional as F
 import numpy as np
 
 from approx.layers import Substitution
-from approx.layers import MSCA, FixPaddingBias, CascadeConv, ParallelConv
+from approx.layers import MSCA, FixPaddingBias, CascadeConv, ParallelConv, MSCAProfile
 from approx.utils.general import to_2tuple
 
 from .approximater import Approximater, APP
@@ -170,3 +172,42 @@ class MscaRep(Approximater):
 
     def _postprocess(self, sub: Substitution):
         pass
+
+
+@APP.register_module()
+class MscaProfile(Approximater):
+    """
+    To profile origin MSCA module.
+    """
+    _src_type = "MSCA"
+    _tgt_type = "MSCAProfile"
+
+    def __init__(self, deploy):
+        super(MscaProfile, self).__init__(deploy)
+
+    def _get_tgt_args(self, src: nn.Module) -> Dict:
+        return dict(
+            num_channel=src.num_channel,
+            k1_size=src.k1_size,
+            k_sizes=src.k_sizes
+        )
+
+    def _fix_substitution(self, sub: Substitution):
+        src: MSCA = sub.old_module
+        tgt: MscaProfile = sub.new_module
+        # tgt.conv0.load_state_dict(src.state_dict())
+        # tgt.sd_convs.load_state_dict(src.state_dict())
+        # tgt.channel_mix.load_state_dict(src.state_dict())
+        tgt.load_state_dict(src.state_dict())
+
+    def optimize(self, sub: Substitution):
+        pass
+
+    def _postprocess(self, sub: Substitution):
+        pass
+
+
+@APP.register_module()
+class MscaRepProfile(MscaRep):
+    _src_type = "MSCA"
+    _tgt_type = "MSCAProfile"

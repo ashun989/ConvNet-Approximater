@@ -1,17 +1,7 @@
-import time
-import torch
-import torch.nn as nn
 import torch.nn.parallel
-from collections import OrderedDict
-from contextlib import suppress
-
-from timm.models import apply_test_time_pool
-from timm.data import create_dataset, create_loader, resolve_data_config, RealLabelsImagenet
-from timm.utils import accuracy, AverageMeter, set_jit_legacy
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, DEFAULT_CROP_PCT
 
 from . import Hook, HOOK
-from approx.utils.logger import get_logger
 from approx.classification import ValidateHelper
 
 has_apex = False

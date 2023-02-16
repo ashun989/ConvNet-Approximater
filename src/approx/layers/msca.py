@@ -1,4 +1,6 @@
 from torch import nn
+import torch.autograd.profiler as profiler
+
 from .depth_seperable_conv import ParallelConv
 from .substituton import LAYER
 
@@ -22,3 +24,16 @@ class MSCA(nn.Module):
 
     def forward(self, x):
         return x * self.channel_mix(self.sd_convs(self.conv0(x)))
+
+
+@LAYER.register_module()
+class MSCAProfile(MSCA):
+    def forward(self, x):
+        attn = x.clone()
+        with profiler.record_function("CONV0"):
+            attn = self.conv0(attn)
+        with profiler.record_function("SD_CONVS"):
+            attn = self.sd_convs(attn)
+        with profiler.record_function("CHANNEL_MIX"):
+            attn = self.channel_mix(attn)
+        return attn * x

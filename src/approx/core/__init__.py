@@ -1,3 +1,4 @@
 from .approximater import Approximater, APP, build_app
 from .low_rank_exp import LowRankExpV1
-from .msca_rep import MscaRep
+from .msca_rep import MscaRep, MscaProfile, MscaRepProfile
+from .dummy import Dummy

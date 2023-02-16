@@ -1,6 +1,6 @@
 from abc import ABCMeta, abstractmethod
 from torch import nn
-from typing import Union
+from typing import Union, Dict
 
 from approx.utils.registry import Registry, build_from_cfg
 from approx.layers import build_layer, Substitution, LAYER
@@ -26,7 +26,7 @@ class Approximater(metaclass=ABCMeta):
         return LAYER.get(self._src_type)
 
     @abstractmethod
-    def _get_tgt_args(self, src: nn.Module) -> dict:
+    def _get_tgt_args(self, src: nn.Module) -> Dict:
         pass
 
     @abstractmethod
