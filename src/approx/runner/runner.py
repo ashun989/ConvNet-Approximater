@@ -23,8 +23,7 @@ class Runner(BaseRunner):
         self.app = build_app(cfg.app, deploy=deploy)
         self.filters = [build_filter(f_cfg) for f_cfg in cfg.filters] if 'filters' in cfg else []
         self.hooks: List[Hook] = []
-        output_name = cfg.output_name if "output_name" in cfg else "opt.pth"
-        self.output_path = os.path.join(cfg.work_dir, output_name)
+        self.output_path = os.path.join(cfg.work_dir, cfg.config_name + ".pth")
 
         if hasattr(cfg, "hooks"):
             for h_cfg in cfg.hooks:
@@ -54,8 +53,8 @@ class Runner(BaseRunner):
             load_model(self.model, self.cfg.checkpoint)
         else:
             get_logger().info('Optimize...')
-            for idx in range(self.model.length_switchable):
-                self.app.optimize(self.model.get_switchable_module(idx))
+            for sub in self.model.switchable_models():
+                self.app.optimize(sub)
 
             self.call_hook("after_optimize")
 

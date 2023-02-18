@@ -17,7 +17,7 @@ hooks = [
             mean=(0.5, 0.5, 0.5),
             std=(0.5, 0.5, 0.5),
             data='/Zalick/Datasets/ILSVRC2012/', )
-    )
+    ),
 ]
 
 output_name = 'mscan_t_d0_fix.pth'

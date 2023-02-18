@@ -34,7 +34,8 @@ def parse_args():
     log_name = "eval.log" if deploy else "train.log"
     log_file = os.path.join(work_dir, log_name)
     build_logger(log_file)
-    update_cfg(work_dir=work_dir, device=device, log_file=log_file, checkpoint=args.checkpoint, deploy=deploy)
+    update_cfg(work_dir=work_dir, device=device, log_file=log_file, checkpoint=args.checkpoint, deploy=deploy,
+               config_name=config_name)
 
 
 def main():

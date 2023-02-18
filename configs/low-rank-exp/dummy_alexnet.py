@@ -1,25 +1,5 @@
-_base_ = ['../_base_/models/alexnet/alexnet.py']
-
-app = dict(
-    type="LowRankExpV1",
-    max_iter=5,
-    min_lmda=0.0001,
-    max_lmda=0.0001,
-    init_method='svd',
-    lmda_length=1,
-    num_bases=(8,),
-    do_decomp=False
-)
-
-filters = [
-    dict(
-        type="SimpleConvFilter"
-    ),
-    dict(
-        type="IndicesFilter",
-        indices=(2,)
-    )
-]
+_base_ = ['../_base_/models/alexnet/alexnet.py',
+          '../_base_/apps/dummy.py']
 
 hooks = [
     dict(

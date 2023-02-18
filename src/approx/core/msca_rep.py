@@ -36,10 +36,8 @@ class MscaRep(Approximater):
     def _fix_substitution(self, sub: Substitution):
         src: MSCA = sub.old_module
         tgt: MSCA = sub.new_module
-        tgt.conv0.weight.data = src.conv0.weight.data
-        tgt.conv0.bias.data = src.conv0.bias.data
-        tgt.channel_mix.weight.data = src.channel_mix.weight.data
-        tgt.channel_mix.bias.data = src.channel_mix.bias.data
+        tgt.conv0.load_state_dict(src.conv0.state_dict())
+        tgt.channel_mix.load_state_dict(src.channel_mix.state_dict())
         max_k_size = max(src.k_sizes)
         padding = max_k_size // 2
         if self.decomp == 0:
@@ -211,3 +209,4 @@ class MscaProfile(Approximater):
 class MscaRepProfile(MscaRep):
     _src_type = "MSCA"
     _tgt_type = "MSCAProfile"
+

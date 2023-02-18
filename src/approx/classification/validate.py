@@ -109,7 +109,7 @@ class ValidateHelper:
         if args.legacy_jit:
             set_jit_legacy()
 
-        model = model.cuda()
+        model.cuda()
         if args.apex_amp:
             model = amp.initialize(model, opt_level='O1')
 

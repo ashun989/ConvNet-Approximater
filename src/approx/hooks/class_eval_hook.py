@@ -3,6 +3,7 @@ from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, DEFAULT_CROP_
 
 from . import Hook, HOOK
 from approx.classification import ValidateHelper
+from approx.utils.config import Config
 
 has_apex = False
 try:
@@ -58,14 +59,10 @@ _default_eval_cfg = dict(
 class ClassEvalHook(Hook):
     def __init__(self, runner, priority, eval_cfg):
         super(ClassEvalHook, self).__init__(runner, priority)
-        self.eval_cfg = eval_cfg.copy()
-        self.parse_cfg()
+        self.eval_cfg = Config()
+        self.eval_cfg.update(_default_eval_cfg)
+        self.eval_cfg.update(eval_cfg)
         self.helper = ValidateHelper(self.runner.model, self.eval_cfg)
-
-    def parse_cfg(self):
-        for k, v in _default_eval_cfg.items():
-            if k not in self.eval_cfg:
-                self.eval_cfg[k] = v
 
     def after_run(self):
         self.helper.validate()

@@ -23,6 +23,10 @@ filters = [
 
 hooks = [
     dict(
+        type='LowRankExpV1Decomp',
+        priority=10,
+    ),
+    dict(
         type='InferenceTimeHook',
         priority=50,
         infer_cfg=dict(

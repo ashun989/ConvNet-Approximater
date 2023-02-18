@@ -1,11 +1,12 @@
 import torch
 from torch import nn
-from typing import Callable, List
+from typing import Callable, List, Union, Iterable
 
 from approx.utils.registry import build_from_cfg, Registry
 from approx.utils.logger import get_logger
 from approx.utils.serialize import load_model
 from approx.filters import ModuleFilter
+from approx.layers import Substitution
 
 
 class SwitchableModel(nn.Module):
@@ -51,8 +52,12 @@ class SwitchableModel(nn.Module):
         else:
             assert False, f"module {p_module} does not have attr {curr}"
 
-    def get_switchable_module(self, index: int):
+    def get_switchable_module(self, index: int) -> Union[nn.Module, Substitution]:
         return self.get_submodule(self._switchable_names[index])
+
+    def switchable_models(self) -> Iterable[Union[nn.Module, Substitution]]:
+        for idx in range(self.length_switchable):
+            yield self.get_switchable_module(idx)
 
 
 MODEL = Registry()

@@ -17,7 +17,8 @@ class Substitution(nn.Module):
         super(Substitution, self).__init__()
         self.old = old_module
         self.new = new_module
-        self.net = Parallel(self.old, self.new)
+        self.net = self.old
+        self.cache = {}
 
     @property
     def old_module(self) -> nn.Module:
@@ -27,9 +28,15 @@ class Substitution(nn.Module):
     def new_module(self) -> nn.Module:
         return self.new
 
-    def remove_old(self):
+    def switch_new(self, remove_old=True):
         self.net = self.new
-        delattr(self, "old")
+        if remove_old:
+            delattr(self, "old")
+
+    def switch_old(self, remove_new=False):
+        self.net = self.old
+        if remove_new:
+            delattr(self, "new")
 
     def forward(self, x):
         return self.net(x)
