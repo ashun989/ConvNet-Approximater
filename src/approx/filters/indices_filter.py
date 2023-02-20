@@ -16,3 +16,6 @@ class IndicesFilter(ModuleFilter):
         passed = self.records[self.curr] if self.curr < len(self.records) else False
         self.curr += 1
         return passed
+
+    def rewind(self):
+        self.curr = 1

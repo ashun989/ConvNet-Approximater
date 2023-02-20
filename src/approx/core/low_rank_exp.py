@@ -20,6 +20,7 @@ class LowRankExpV1(Approximater):
     def __init__(self, num_bases, max_iter, lmda_length,
                  min_lmda, max_lmda, init_method='svd',
                  inc_rate=1.5, do_decomp=False,
+                 verbose=False, epsilon=1e-3,
                  deploy=False):
         super(LowRankExpV1, self).__init__(deploy=deploy)
         self.num_bases = num_bases
@@ -31,6 +32,11 @@ class LowRankExpV1(Approximater):
         self.do_decomp = do_decomp
         self.init_method = init_method
         # self.constrain_weight = constrain_weight
+        self.verbose = verbose
+        self.epsilon = epsilon
+
+    def rewind(self):
+        self.curr = 0
 
     def _get_tgt_args(self, src: nn.Conv2d) -> dict:
 
@@ -58,6 +64,8 @@ class LowRankExpV1(Approximater):
         src: nn.Conv2d = sub.old_module
         tgt: LowRankExpConvV1 = sub.new_module
         tgt.bias.data = src.bias.data
+        if self.deploy and self.do_decomp:
+            tgt.decomp()
 
     def _get_bi_problem(self,
                         filters: np.ndarray,
@@ -131,7 +139,6 @@ class LowRankExpV1(Approximater):
 
     def optimize(self, sub: Substitution):
         logger = get_logger()
-        epsilon = 1e-2
         src: nn.Conv2d = sub.old_module
         tgt: LowRankExpConvV1 = sub.new_module
         last_err = 0
@@ -152,25 +159,25 @@ class LowRankExpV1(Approximater):
             cache2['lmda'].value = lmda
             for iter in range(1, self.max_iter + 1):
                 # Fix weights, update bases
-                problem1.solve(ignore_dpp=True, verbose=True)
+                problem1.solve(ignore_dpp=True, verbose=self.verbose)
                 total_err = cache1['obj'].value
                 logger.info(f"[lamda: {lmda}]({iter}/{self.max_iter})[1], total error: {total_err}")
                 cache2['bases'].value = cache1['bases'].value
                 # Fix bases, update weights
-                problem2.solve(ignore_dpp=True, verbose=True)
+                problem2.solve(ignore_dpp=True, verbose=self.verbose)
                 total_err = cache2['obj'].value
                 logger.info(f"[lamda: {lmda}]({iter}/{self.max_iter})[2], total error: {total_err}")
                 cache1['weights'].value = cache2['weights'].value
-                if abs(last_err - total_err) < epsilon:
+                if abs(last_err - total_err) < self.epsilon:
                     break
                 last_err = total_err
-            svdvals = torch.linalg.svdvals(torch.from_numpy(cache1['bases'].value).reshape(M, d, d))
+            svdvals = torch.linalg.svdvals(torch.from_numpy(cache2['bases'].value).reshape(M, d, d))
             svdvals = svdvals ** 2
             energy = torch.mean(svdvals[:, 0] / torch.sum(svdvals, dim=1))
             logger.info(f"PC Energy = {energy.item()}")
-        tmp = torch.from_numpy(cache1['bases'].value).to(torch.float32).reshape(M, d, d)  # (M, d, d)
+        tmp = torch.from_numpy(cache2['bases'].value).to(torch.float32).reshape(M, d, d)  # (M, d, d)
         tgt.s_conv.weight.data = tmp.unsqueeze(0).expand(C, -1, -1, -1).reshape(C * M, 1, d, d)
-        tmp = torch.from_numpy(cache2['weights'].value).to(torch.float32)  # (N*C, M)
+        tmp = torch.from_numpy(cache1['weights'].value).to(torch.float32)  # (N*C, M)
         tgt.d_conv.weight.data = tmp.reshape(N, C * M).unsqueeze(-1).unsqueeze(-1)  # (N, C*M, 1, 1)
 
     def _postprocess(self, sub: Substitution):

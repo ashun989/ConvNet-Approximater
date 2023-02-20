@@ -2,7 +2,7 @@ import torch
 from torch import distributed as dist
 
 
-def unwarp_model(model):
+def unwrap_model(model):
     return model.module if hasattr(model, 'module') else model
 
 

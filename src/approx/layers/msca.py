@@ -25,6 +25,9 @@ class MSCA(nn.Module):
     def forward(self, x):
         return x * self.channel_mix(self.sd_convs(self.conv0(x)))
 
+    def switchable_layer(self):
+        return self.sd_convs
+
 
 @LAYER.register_module()
 class MSCAProfile(MSCA):

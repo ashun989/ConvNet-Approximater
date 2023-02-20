@@ -12,6 +12,9 @@ class ModuleFilter(metaclass=ABCMeta):
     def __call__(self, *args, **kwargs):
         return self.filter(*args, **kwargs)
 
+    def rewind(self):
+        pass
+
 
 FILTER = Registry()
 

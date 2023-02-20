@@ -3,11 +3,9 @@ _base_ = ['../_base_/models/alexnet/alexnet.py',
 
 hooks = [
     dict(
-        type='InferenceTimeHook',
+        type='ModelAnalysis',
         priority=50,
-        infer_cfg=dict(
-            input_size=(4, 3, 224, 224),
-        )
+        input_shape=(3, 224, 224)
     ),
     dict(
         type='ClassEvalHook',
@@ -20,4 +18,11 @@ hooks = [
             interpolation='bilinear',
             data='data'),
     ),
+    dict(
+        type='InferenceTimeHook',
+        priority=50,
+        infer_cfg=dict(
+            input_size=(64, 3, 224, 224),
+        )
+    )
 ]

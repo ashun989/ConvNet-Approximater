@@ -57,6 +57,9 @@ class Approximater(metaclass=ABCMeta):
         self._postprocess(sub)
         return sub.new_module
 
+    def rewind(self):
+        pass
+
 
 APP = Registry()
 
