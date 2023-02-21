@@ -1,5 +1,6 @@
 import os
 import warnings
+import os
 
 
 def check_file(file, ext=None):
@@ -16,6 +17,11 @@ def check_file(file, ext=None):
             # warnings.warn(f"the type of {file} must be in {ext}")
             return False
     return True
+
+
+def parse_filename(path):
+    paths = os.path.split(path)
+    return os.path.splitext(paths[-1])[0]
 
 
 def to_2tuple(x) -> tuple:

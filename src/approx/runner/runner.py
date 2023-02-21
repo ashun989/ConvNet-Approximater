@@ -15,15 +15,18 @@ from .base import BaseRunner
 class Runner(BaseRunner):
     def __init__(self, deploy: bool = False):
         cfg = get_cfg()
-        print_cfg()
-        save_cfg(os.path.join(cfg.work_dir, "cfg.yaml"))
+
         self.deploy = deploy
         self.cfg = cfg
         self.model = build_model(cfg.model)
         self.app = build_app(cfg.app, deploy=deploy)
         self.filters = [build_filter(f_cfg) for f_cfg in cfg.filters] if 'filters' in cfg else []
         self.hooks: List[Hook] = []
-        self.output_path = os.path.join(cfg.work_dir, cfg.config_name + ".pth")
+        self.output_path = None
+        if cfg.local_rank == 0:
+            print_cfg()
+            save_cfg(os.path.join(cfg.work_dir, "cfg.yaml"))
+            self.output_path = os.path.join(cfg.work_dir, cfg.config_name + ".pth")
 
         if hasattr(cfg, "hooks"):
             for h_cfg in cfg.hooks:
@@ -31,10 +34,12 @@ class Runner(BaseRunner):
             get_logger().info(self.hook_info())
 
     def run(self):
+        zero_device = self.cfg.local_rank == 0
+
         self.call_hook("before_run")
 
         get_logger().info('Register...')
-        self.model.register_switchable(self.app.src_type, self.filters)
+        self.model.register_switchable(self.app.src_type, self.filters, verbose=True)
 
         get_logger().info(
             f"There are {self.model.length_switchable} switchable submodules: {self.model._switchable_names}")
@@ -42,6 +47,7 @@ class Runner(BaseRunner):
         self.call_hook("after_register")
 
         get_logger().info('Initialize...')
+
         self.model.init_weights()
         for idx in range(self.model.length_switchable):
             src = self.model.get_switchable_module(idx)
@@ -55,7 +61,6 @@ class Runner(BaseRunner):
             get_logger().info('Optimize...')
             for sub in self.model.switchable_models():
                 self.app.optimize(sub)
-
             self.call_hook("after_optimize")
 
             # Step3: Post process
@@ -63,7 +68,8 @@ class Runner(BaseRunner):
             for idx in range(self.model.length_switchable):
                 sub = self.model.get_switchable_module(idx)
                 self.model.set_switchable_module(idx, self.app.postprocess, sub=sub)
-            save_model(self.model, self.output_path)
+            if zero_device:
+                save_model(self.model, self.output_path)
 
         self.call_hook("after_run")
 

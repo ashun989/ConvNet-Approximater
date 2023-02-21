@@ -1,9 +1,36 @@
 import logging
 from typing import Optional
+from .config import get_cfg
+
+
+class DummyLogger:
+    def trace(self, *args, **kwargs):
+        pass
+
+    def info(self, *args, **kwargs):
+        pass
+
+    def debug(self, *args, **kwargs):
+        pass
+
+    def warn(self, *args, **kwargs):
+        pass
+
+    def error(self, *args, **kwargs):
+        pass
+
+    def critical(self, *args, **kwargs):
+        pass
+
+
+_dummy_logger = DummyLogger()
 
 
 def get_logger():
-    return logging.getLogger()
+    cfg = get_cfg()
+    if not cfg.distributed or cfg.local_rank == 0:
+        return logging.getLogger()
+    return _dummy_logger
 
 
 def build_logger(log_file: Optional[str] = None):
@@ -19,4 +46,3 @@ def build_logger(log_file: Optional[str] = None):
         fh.setLevel(logging.INFO)
         fh.setFormatter(formatter)
         logger.addHandler(fh)
-

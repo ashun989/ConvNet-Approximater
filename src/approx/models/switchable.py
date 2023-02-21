@@ -19,7 +19,7 @@ class SwitchableModel(nn.Module):
         if isinstance(self.init_cfg, str):
             load_model(self, self.init_cfg)
 
-    def register_switchable(self, src_type: type, filters: List[ModuleFilter]):
+    def register_switchable(self, src_type: type, filters: List[ModuleFilter], verbose: bool = False):
         cache = [(name, module) for name, module in self.named_children()]
         while cache:
             top = cache[0]
@@ -29,7 +29,8 @@ class SwitchableModel(nn.Module):
                 for f in filters:
                     if not f(top[1]):
                         passed = False
-                        get_logger().info(f"{top[0]} is filtered out by {f.__class__.__name__}")
+                        if verbose:
+                            get_logger().info(f"{top[0]} is filtered out by {f.__class__.__name__}")
                         break
                 if passed:
                     self._switchable_names.append(top[0])

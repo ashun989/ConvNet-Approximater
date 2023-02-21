@@ -10,21 +10,21 @@ from collections import OrderedDict
 from . import Hook, HOOK
 from approx.models import build_model, SwitchableModel
 from approx.layers import Substitution
-from approx.utils import random_seed, distribute_bn, reduce_tensor, unwrap_model
+from approx.utils import distribute_bn, reduce_tensor, unwrap_model
 from approx.utils.logger import get_logger
-from approx.utils.config import Config
+from approx.utils.config import Config, get_cfg
 
 from timm.data import create_dataset, create_loader
 from timm.models import resume_checkpoint, load_checkpoint
 from timm.optim import create_optimizer_v2
 from timm.scheduler import create_scheduler
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD, DEFAULT_CROP_PCT
-from timm.utils import CheckpointSaver, AverageMeter, accuracy
+from timm.utils import CheckpointSaver, AverageMeter, accuracy, update_summary
 
 _default_dataset_args = dict(
     name='',
     root='path/to/dataset',
-    batch_size=64
+    batch_size=64  # batch size per GPU
 )
 
 _default_data_config = dict(
@@ -46,12 +46,6 @@ _default_optim_args = dict(
 _default_other_args = dict(
     log_interval=50,
     num_workers=8,
-    distributed=False,
-    device='cuda:0',
-    world_size=1,
-    rank=0,
-    local_rank=0,
-    seed=42,
     sync_bn=False,
     dist_bn='reduce',
     resume='',
@@ -128,20 +122,8 @@ class L2Reconstruct(Hook):
             self.ori_model = build_model(self.runner.cfg.model)
 
     def after_optimize(self):
-        if self.other_args['distributed']:
-            self.other_args['device'] = 'cuda:%d' % self.other_args['local_rank']
-            torch.cuda.set_device(self.other_args['local_rank'])
-            torch.distributed.init_process_group(backend='nccl', init_method='env://')
-            self.other_args['world_size'] = torch.distributed.get_world_size()
-            self.other_args['rank'] = torch.distributed.get_rank()
-            get_logger().info(
-                'Fine-tuning in distributed mode with multiple processes, 1 GPU per process. Process %d, total %d.'
-                % (self.other_args['rank'], self.other_args['world_size']))
-        else:
-            get_logger().info('Fine-tuning with a single process on 1 GPUs.')
-        assert self.other_args['rank'] >= 0
 
-        random_seed(self.other_args['seed'], self.other_args['rank'])
+        g_args = get_cfg()
 
         if self.no_norm:
             for sub in self.model.switchable_models():
@@ -165,13 +147,17 @@ class L2Reconstruct(Hook):
 
         self.model.cuda()
 
-        if self.other_args['distributed'] and self.other_args['sync_bn']:
+        if g_args.distributed and self.other_args['sync_bn']:
             self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
-            if self.other_args['local_rank'] == 0:
-                get_logger().info(
-                    'Converted model to use Synchronized BatchNorm. WARNING: You may have issues if using '
-                    'zero initialized BN layers (enabled by default for ResNets) while sync-bn enabled.')
-            self.model = DistributedDataParallel(self.model)
+            self.model = DistributedDataParallel(self.model, device_ids=[g_args.local_rank],
+                                                 output_device=g_args.local_rank)
+            if hasattr(self, "ori_model"):
+                self.ori_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.ori_model)
+                self.ori_model = DistributedDataParallel(self.ori_model, device_ids=[g_args.local_rank],
+                                                         output_device=g_args.local_rank)
+            get_logger().info(
+                'Converted model to use Synchronized BatchNorm. WARNING: You may have issues if using '
+                'zero initialized BN layers (enabled by default for ResNets) while sync-bn enabled.')
 
         dataset_train = create_dataset(split='train', **self.dataset_args)
         dataset_eval = create_dataset(split='validation', **self.dataset_args)
@@ -184,7 +170,7 @@ class L2Reconstruct(Hook):
                                      std=self.data_config['std'],
                                      interpolation=self.data_config['interpolation'],
                                      num_workers=self.other_args['num_workers'],
-                                     distributed=self.other_args['distributed'])
+                                     distributed=g_args.distributed)
         loader_eval = create_loader(dataset_eval,
                                     input_size=self.data_config['input_size'],
                                     batch_size=self.dataset_args['batch_size'],
@@ -192,7 +178,9 @@ class L2Reconstruct(Hook):
                                     no_aug=True,
                                     mean=self.data_config['mean'],
                                     std=self.data_config['std'],
-                                    interpolation=self.data_config['interpolation'])
+                                    interpolation=self.data_config['interpolation'],
+                                    num_workers=self.other_args['num_workers'],
+                                    distributed=g_args.distributed)
 
         optimizer = create_optimizer_v2(self.model, **self.optim_args)
 
@@ -200,7 +188,7 @@ class L2Reconstruct(Hook):
         if self.other_args['resume']:
             resume_epoch = resume_checkpoint(self.model, self.other_args['resume'],
                                              optimizer=None if self.other_args['no_resume_opt'] else optimizer,
-                                             log_info=self.other_args['local_rank'] == 0)
+                                             log_info=g_args.local_rank == 0)
         lr_scheduler, num_epochs = create_scheduler(self.sche_args, optimizer)
         start_epoch = 0
         if self.other_args['start_epoch'] is not None:
@@ -211,8 +199,7 @@ class L2Reconstruct(Hook):
         if lr_scheduler is not None and start_epoch > 0:
             lr_scheduler.step(start_epoch)
 
-        if self.other_args['local_rank'] == 0:
-            get_logger().info('Scheduled epochs: {}'.format(num_epochs))
+        get_logger().info('Scheduled epochs: {}'.format(num_epochs))
 
         train_loss_fn = nn.CrossEntropyLoss().cuda()
         validate_loss_fn = nn.CrossEntropyLoss().cuda()
@@ -220,9 +207,10 @@ class L2Reconstruct(Hook):
         eval_metric = self.other_args['eval_metric']
         best_metric = None
         best_epoch = None
+        out_dir = None
         saver = None
 
-        if self.other_args['rank'] == 0:
+        if g_args.rank == 0:
             decreasing = True if eval_metric == 'loss' else False
             out_dir = self.runner.cfg.work_dir
             saver = CheckpointSaver(model=self.model,
@@ -241,7 +229,8 @@ class L2Reconstruct(Hook):
                 b = i * self.other_args['layer_epochs']
                 e = min((i + 1) * self.other_args['layer_epochs'], num_epochs)
                 epoch_behaviors[b:e] = [i] * (e - b)
-        get_logger().info(f'epoch_behaviors: {epoch_behaviors}')
+        if self.other_args.local_rank == 0:
+            get_logger().info(f'epoch_behaviors: {epoch_behaviors}')
         try:
             for epoch in range(start_epoch, num_epochs):
                 if epoch_behaviors[epoch] >= 0:
@@ -250,17 +239,20 @@ class L2Reconstruct(Hook):
                 else:
                     if freezed:
                         unwrap_model(self.model).unfreeze()
-                if self.other_args['distributed'] and hasattr(loader_train.sampler, 'set_epoch'):
+                if g_args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
                     loader_train.sampler.set_epoch(epoch)
                 train_metrics = self.train_one_epoch(epoch, loader_train, train_loss_fn, optimizer, lr_scheduler, saver)
-                if self.other_args['distributed'] and self.other_args['dist_bn'] in ('broadcast', 'reduce'):
-                    if self.other_args['local_rank'] == 0:
-                        get_logger().info("Distributing BatchNorm running means and vars")
-                    distribute_bn(self.model, self.other_args['world_size'], self.other_args['dist_bn'] == 'reduce')
+                if g_args.distributed and self.other_args['dist_bn'] in ('broadcast', 'reduce'):
+                    get_logger().info("Distributing BatchNorm running means and vars")
+                    distribute_bn(self.model, g_args.world_size, self.other_args['dist_bn'] == 'reduce')
                 eval_metrics = self.validate(loader_eval, validate_loss_fn)
                 if lr_scheduler is not None:
                     lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
                 # TODO: output to csv file
+                if out_dir is not None:
+                    update_summary(
+                        epoch, train_metrics, eval_metrics, os.path.join(out_dir, 'summary.csv'),
+                        write_header=best_metric is None)
                 if saver is not None:
                     # save proper checkpoint with eval metric
                     save_metric = eval_metrics[eval_metric]
@@ -273,6 +265,7 @@ class L2Reconstruct(Hook):
 
     def train_one_epoch(self, epoch, loader, loss_fn, optimizer,
                         lr_scheduler=None, saver=None):
+        g_args = get_cfg()
         self.model.train()
         batch_time_m = AverageMeter()
         data_time_m = AverageMeter()
@@ -295,7 +288,7 @@ class L2Reconstruct(Hook):
                 if self.asym:
                     with torch.no_grad():
                         self.ori_model(input)
-                    for ori_sub, sub in zip(self.ori_model.switchable_models(),
+                    for ori_sub, sub in zip(unwrap_model(self.ori_model).switchable_models(),
                                             unwrap_model(self.model).switchable_models()):
                         sub.cache['ori_output'] = ori_sub.cache['ori_output']
                 else:
@@ -315,13 +308,13 @@ class L2Reconstruct(Hook):
             loss = loss_fn(output, target)
             total_norm = 0
             if not self.no_norm:
-                for sub in self.model.switchable_models():
+                for sub in unwrap_model(self.model).switchable_models():
                     total_norm += sub.cache['norm']
                 total_norm /= self.model.length_switchable
                 total_norm = torch.mean(total_norm)
 
             total_loss = self.l2_weight * total_norm + self.cls_weight * loss
-            if not self.other_args['distributed']:
+            if not g_args.distributed:
                 losses_m.update(loss.item(), input.size(0))
                 if not self.no_norm:
                     norm_m.update(total_norm.item(), input.size(0))
@@ -338,33 +331,32 @@ class L2Reconstruct(Hook):
                 lrl = [param_group['lr'] for param_group in optimizer.param_groups]
                 lr = sum(lrl) / len(lrl)
 
-                if self.other_args['distributed']:
-                    reduced_loss = reduce_tensor(loss.data, self.other_args['world_size'])
-                    reduced_norm = reduce_tensor(total_norm.data, self.other_args['world_size'])
-                    reduced_total = reduce_tensor(total_loss.data, self.other_args['world_size'])
+                if g_args.distributed:
+                    reduced_loss = reduce_tensor(loss.data, g_args.world_size)
+                    reduced_norm = reduce_tensor(total_norm.data, g_args.world_size)
+                    reduced_total = reduce_tensor(total_loss.data, g_args.world_size)
                     losses_m.update(reduced_loss.item(), input.size(0))
                     norm_m.update(reduced_norm.item(), input.size(0))
                     total_m.update(reduced_total.item(), input.size(0))
 
-                if self.other_args['local_rank'] == 0:
-                    get_logger().info(
-                        'Train: {} [{:>4d}/{} ({:>3.0f}%)]  '
-                        'Loss: {loss.val:#.4g} ({loss.avg:#.3g})  '
-                        'Norm: {norm.val:#.4g} ({norm.avg:#.3g})  '
-                        'Time: {batch_time.val:.3f}s, {rate:>7.2f}/s  '
-                        '({batch_time.avg:.3f}s, {rate_avg:>7.2f}/s)  '
-                        'LR: {lr:.3e}  '
-                        'Data: {data_time.val:.3f} ({data_time.avg:.3f})'.format(
-                            epoch,
-                            batch_idx, len(loader),
-                            100. * batch_idx / last_idx,
-                            loss=losses_m,
-                            norm=norm_m,
-                            batch_time=batch_time_m,
-                            rate=input.size(0) * self.other_args['world_size'] / batch_time_m.val,
-                            rate_avg=input.size(0) * self.other_args['world_size'] / batch_time_m.avg,
-                            lr=lr,
-                            data_time=data_time_m))
+                get_logger().info(
+                    'Train: {} [{:>4d}/{} ({:>3.0f}%)]  '
+                    'Loss: {loss.val:#.4g} ({loss.avg:#.3g})  '
+                    'Norm: {norm.val:#.4g} ({norm.avg:#.3g})  '
+                    'Time: {batch_time.val:.3f}s, {rate:>7.2f}/s  '
+                    '({batch_time.avg:.3f}s, {rate_avg:>7.2f}/s)  '
+                    'LR: {lr:.3e}  '
+                    'Data: {data_time.val:.3f} ({data_time.avg:.3f})'.format(
+                        epoch,
+                        batch_idx, len(loader),
+                        100. * batch_idx / last_idx,
+                        loss=losses_m,
+                        norm=norm_m,
+                        batch_time=batch_time_m,
+                        rate=input.size(0) * g_args.world_size / batch_time_m.val,
+                        rate_avg=input.size(0) * g_args.world_size / batch_time_m.avg,
+                        lr=lr,
+                        data_time=data_time_m))
 
             if lr_scheduler is not None:
                 lr_scheduler.step_update(num_updates=num_updates, metric=total_m.avg)
@@ -379,6 +371,7 @@ class L2Reconstruct(Hook):
         return OrderedDict([('loss', total_m.avg)])
 
     def validate(self, loader, loss_fn):
+        g_args = get_cfg()
         batch_time_m = AverageMeter()
         losses_m = AverageMeter()
         top1_m = AverageMeter()
@@ -394,10 +387,10 @@ class L2Reconstruct(Hook):
                 loss = loss_fn(output, target)
                 acc1, acc5 = accuracy(output, target, topk=(1, 5))
 
-                if self.other_args['distributed']:
-                    reduced_loss = reduce_tensor(loss.data, self.other_args['world_size'])
-                    acc1 = reduce_tensor(acc1, self.other_args['world_size'])
-                    acc5 = reduce_tensor(acc5, self.other_args['world_size'])
+                if g_args.distributed:
+                    reduced_loss = reduce_tensor(loss.data, g_args.world_size)
+                    acc1 = reduce_tensor(acc1, g_args.world_size)
+                    acc5 = reduce_tensor(acc5, g_args.world_size)
                 else:
                     reduced_loss = loss.data
                 torch.cuda.synchronize()

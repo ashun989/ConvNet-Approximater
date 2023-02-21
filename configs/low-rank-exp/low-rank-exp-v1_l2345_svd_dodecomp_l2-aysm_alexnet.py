@@ -13,7 +13,7 @@ hooks = [
         dataset_args=dict(
             name='torch/cifar10',
             root='data',
-            batch_size=64
+            batch_size=32
         ),
         data_config=dict(
             crop_pct=0.875,
