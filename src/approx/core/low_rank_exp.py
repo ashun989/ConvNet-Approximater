@@ -19,7 +19,7 @@ class LowRankExpV1(Approximater):
 
     def __init__(self, num_bases, max_iter, lmda_length,
                  min_lmda, max_lmda, init_method='svd',
-                 inc_rate=1.5, do_decomp=False,
+                 inc_rate=1.5, do_decomp=False, init_decomp=False,
                  verbose=False, epsilon=1e-3,
                  deploy=False):
         super(LowRankExpV1, self).__init__(deploy=deploy)
@@ -30,6 +30,7 @@ class LowRankExpV1(Approximater):
         self.lmda_list = np.logspace(0, inc_rate, lmda_length + 1)[1:] - 1
         self.lmda_list = self.lmda_list / self.lmda_list[-1] * (max_lmda - min_lmda) + min_lmda
         self.do_decomp = do_decomp
+        self.init_decomp = init_decomp
         self.init_method = init_method
         # self.constrain_weight = constrain_weight
         self.verbose = verbose
@@ -57,15 +58,13 @@ class LowRankExpV1(Approximater):
             kernel_size=src.kernel_size,
             stride=src.stride,
             padding=src.padding,
-            decomp=False
+            decomp=self.init_decomp
         )
 
     def _fix_substitution(self, sub: Substitution):
         src: nn.Conv2d = sub.old_module
         tgt: LowRankExpConvV1 = sub.new_module
         tgt.bias.data = src.bias.data
-        if self.deploy and self.do_decomp:
-            tgt.decomp()
 
     def _get_bi_problem(self,
                         filters: np.ndarray,
@@ -138,6 +137,10 @@ class LowRankExpV1(Approximater):
                                                   obj=obj)
 
     def optimize(self, sub: Substitution):
+
+        if self.init_decomp:
+            return
+
         logger = get_logger()
         src: nn.Conv2d = sub.old_module
         tgt: LowRankExpConvV1 = sub.new_module

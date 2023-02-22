@@ -9,6 +9,7 @@ app = dict(
     init_method='svd',
     lmda_length=1,
     num_bases=(8,),
-    do_decomp=False
+    do_decomp=False,
+    init_decomp=False
 )
 

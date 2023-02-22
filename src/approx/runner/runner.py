@@ -13,10 +13,14 @@ from .base import BaseRunner
 
 
 class Runner(BaseRunner):
-    def __init__(self, deploy: bool = False):
+    def __init__(self, deploy: bool = False,
+                 skip_optim: bool = False,
+                 skip_post: bool = False):
         cfg = get_cfg()
 
         self.deploy = deploy
+        self.skip_optim = skip_optim
+        self.skip_post = skip_post
         self.cfg = cfg
         self.model = build_model(cfg.model)
         self.app = build_app(cfg.app, deploy=deploy)
@@ -57,19 +61,22 @@ class Runner(BaseRunner):
 
         if self.deploy:
             load_model(self.model, self.cfg.checkpoint)
-        else:
+
+        if not self.skip_optim:
             get_logger().info('Optimize...')
             for sub in self.model.switchable_models():
                 self.app.optimize(sub)
-            self.call_hook("after_optimize")
+        self.call_hook("after_optimize")
 
-            # Step3: Post process
+        # Step3: Post process
+        if not self.skip_post:
             get_logger().info('PostProcess...')
             for idx in range(self.model.length_switchable):
                 sub = self.model.get_switchable_module(idx)
                 self.model.set_switchable_module(idx, self.app.postprocess, sub=sub)
-            if zero_device:
-                save_model(self.model, self.output_path)
+
+        if zero_device:
+            save_model(self.model, self.output_path)
 
         self.call_hook("after_run")
 

@@ -8,7 +8,8 @@ app = dict(
     init_method='svd',
     lmda_length=10,
     num_bases=(8,),
-    do_decomp=False
+    do_decomp=False,
+    init_decomp=False
 )
 
 filters = [
@@ -36,7 +37,9 @@ hooks = [
             mean=(0.485, 0.456, 0.406),
             std=(0.229, 0.224, 0.225),
             interpolation='bilinear',
-            data='data'),
+            data='data',
+            num_gpu=2
+        ),
     ),
     dict(
         type='InferenceTimeHook',

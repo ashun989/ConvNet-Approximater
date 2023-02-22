@@ -60,25 +60,28 @@ class SwitchableModel(nn.Module):
         for idx in range(self.length_switchable):
             yield self.get_switchable_module(idx)
 
-    def freeze_except(self, index: int):
+    def freeze_except(self, *indices: int):
         for p in self.parameters():
             p.requires_grad = False
 
-        except_name = self._switchable_names[index]
+        except_names = set([self._switchable_names[index] for index in indices])
         cache = [(name, module) for name, module in self.named_children()]
+        num = 0
         while cache:
             top = cache[0]
             del cache[0]
-            if top[0] == except_name:
+            if top[0] in except_names:
                 if hasattr(top[1], "switchable_layer"):
                     for p in top[1].switchable_layer().parameters():
                         p.requires_grad = True
                 else:
                     for p in top[1].parameters():
                         p.requires_grad = True
-                break
+                num += 1
+                continue
             for name, module in top[1].named_children():
                 cache.append((f"{top[0]}.{name}", module))
+        assert num == len(indices)
 
     def unfreeze(self):
         for p in self.parameters():

@@ -1,4 +1,3 @@
-import os
 import warnings
 import os
 
@@ -19,9 +18,15 @@ def check_file(file, ext=None):
     return True
 
 
-def parse_filename(path):
+def parse_path(path):
+    """
+    :param path: A file path
+    :return: dir, filename, extension
+    """
     paths = os.path.split(path)
-    return os.path.splitext(paths[-1])[0]
+    dir = os.path.sep.join(paths[:-1])
+    filename, extension = os.path.splitext(paths[-1])
+    return dir, filename, extension
 
 
 def to_2tuple(x) -> tuple:

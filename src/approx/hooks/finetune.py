@@ -1,4 +1,5 @@
 import os.path
+from enum import Enum
 
 import torch
 from torch import nn
@@ -53,7 +54,6 @@ _default_other_args = dict(
     start_epoch=None,
     eval_metric='top1',
     checkpoint_hist=10,
-    layer_epochs=1,
 )
 
 _default_scheduler_args = dict(
@@ -99,7 +99,8 @@ class L2Reconstruct(Hook):
                  asym=True,
                  l2_weight=1.0,
                  cls_weight=0.0,
-                 layer_wise=True,
+                 epoch_behavior=(),
+                 # 0-L means freeze this layer, -1 means freeze all, -2 means no freeze, each position corresponds to each epoch
                  no_norm=False,  # not calculate l2 norm at all
                  dataset_args={},
                  optim_args={},
@@ -110,7 +111,7 @@ class L2Reconstruct(Hook):
         self.asym = asym
         self.l2_weight = l2_weight
         self.cls_weight = cls_weight
-        self.layer_wise = layer_wise
+        self.epoch_behavior = epoch_behavior
         self.no_norm = no_norm
         self.model: SwitchableModel = self.runner.model
         self.dataset_args = combine_config(_default_dataset_args, dataset_args)
@@ -118,6 +119,7 @@ class L2Reconstruct(Hook):
         self.sche_args = combine_config(_default_scheduler_args, sche_args)
         self.data_config = combine_config(_default_data_config, data_config)
         self.other_args = combine_config(_default_other_args, other_args)
+        self.ori_model = None
         if self.asym and not self.no_norm:
             self.ori_model = build_model(self.runner.cfg.model)
 
@@ -125,10 +127,11 @@ class L2Reconstruct(Hook):
 
         g_args = get_cfg()
 
-        if self.no_norm:
-            for sub in self.model.switchable_models():
-                sub.switch_new(remove_old=True)
-        elif self.asym:
+        num_layers = self.model.length_switchable
+
+        for sub in self.model.switchable_models():
+            sub.switch_new(remove_old=self.no_norm)
+        if self.ori_model is not None:
             for f in self.runner.filters:
                 f.rewind()
             self.runner.app.rewind()
@@ -151,7 +154,7 @@ class L2Reconstruct(Hook):
             self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
             self.model = DistributedDataParallel(self.model, device_ids=[g_args.local_rank],
                                                  output_device=g_args.local_rank)
-            if hasattr(self, "ori_model"):
+            if self.ori_model is not None:
                 self.ori_model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.ori_model)
                 self.ori_model = DistributedDataParallel(self.ori_model, device_ids=[g_args.local_rank],
                                                          output_device=g_args.local_rank)
@@ -221,24 +224,28 @@ class L2Reconstruct(Hook):
                                     max_history=self.other_args['checkpoint_hist']
                                     )
 
-        epoch_behaviors = [-1] * num_epochs
         freezed = False
-        layers = unwrap_model(self.model).length_switchable
-        if self.layer_wise:
-            for i in range(min(num_epochs, layers)):
-                b = i * self.other_args['layer_epochs']
-                e = min((i + 1) * self.other_args['layer_epochs'], num_epochs)
-                epoch_behaviors[b:e] = [i] * (e - b)
-        if self.other_args.local_rank == 0:
-            get_logger().info(f'epoch_behaviors: {epoch_behaviors}')
+        epoch_behavior = self.epoch_behavior
+        if len(epoch_behavior) < num_epochs:
+            epoch_behavior += [-1] * (num_epochs - len(epoch_behavior))
+        else:
+            epoch_behavior = epoch_behavior[:num_epochs]
+
+
+        get_logger().info(f'epoch_behaviors: {epoch_behavior}')
+
         try:
             for epoch in range(start_epoch, num_epochs):
-                if epoch_behaviors[epoch] >= 0:
-                    unwrap_model(self.model).freeze_except(epoch_behaviors[epoch])
+                if epoch_behavior[epoch] >= 0:
+                    unwrap_model(self.model).freeze_except(epoch_behavior[epoch])
                     freezed = True
+                elif epoch_behavior[epoch] == -1:
+                    unwrap_model(self.model).freeze_except(*[i for i in range(num_layers)])
+                    freezed = False
                 else:
                     if freezed:
                         unwrap_model(self.model).unfreeze()
+                        freezed = False
                 if g_args.distributed and hasattr(loader_train.sampler, 'set_epoch'):
                     loader_train.sampler.set_epoch(epoch)
                 train_metrics = self.train_one_epoch(epoch, loader_train, train_loss_fn, optimizer, lr_scheduler, saver)
@@ -248,7 +255,6 @@ class L2Reconstruct(Hook):
                 eval_metrics = self.validate(loader_eval, validate_loss_fn)
                 if lr_scheduler is not None:
                     lr_scheduler.step(epoch + 1, eval_metrics[eval_metric])
-                # TODO: output to csv file
                 if out_dir is not None:
                     update_summary(
                         epoch, train_metrics, eval_metrics, os.path.join(out_dir, 'summary.csv'),

@@ -7,7 +7,7 @@ import torch.cuda
 from approx.runner import Runner
 from approx.utils.config import init_cfg, update_cfg, get_cfg
 from approx.utils.logger import build_logger, get_logger
-from approx.utils import check_file, random_seed, parse_filename
+from approx.utils import check_file, random_seed, parse_path
 
 
 def parse_args():
@@ -16,8 +16,11 @@ def parse_args():
     parser.add_argument("--config", required=True, type=str, help="Path to config file")
     parser.add_argument("--checkpoint", type=str, default=None,
                         help="Path to checkpoint file. If it is used,"
-                             "the optimization step will be skipped, `app.initialize` arg `deploy` will be True,"
+                             "the optimization and psotproces step will be skipped, "
+                             "`app.initialize` arg `deploy` will be True,"
                              "and this checkpoint will be load after initialization.")
+    parser.add_argument("--skip-optim", action="store_true", default=None)
+    parser.add_argument("--skip-post", action="store_true", default=None)
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     args = parser.parse_args()
 
@@ -25,6 +28,8 @@ def parse_args():
     if args.checkpoint:
         deploy = True
         assert check_file(args.checkpoint)
+        args.skip_optim = True
+        args.skip_post = True
 
     init_cfg(args.config)
 
@@ -43,7 +48,7 @@ def parse_args():
         local_rank = int(os.environ['LOCAL_RANK'])
 
     if local_rank == 0:
-        config_name = parse_filename(args.config)
+        config_name = parse_path(args.config)[1]
         work_dir = os.path.join("work_dir", config_name, datetime.now().strftime('%Y%m%d%H%M%S'))
         os.makedirs(work_dir, exist_ok=True)
         log_name = "eval.log" if deploy else "train.log"
@@ -70,13 +75,13 @@ def parse_args():
     update_cfg(work_dir=work_dir, device=device, log_file=log_file,
                checkpoint=args.checkpoint, deploy=deploy, config_name=config_name,
                distributed=distributed, world_size=world_size, rank=rank, local_rank=local_rank,
-               seed=args.seed)
+               seed=args.seed, skip_optim=args.skip_optim, skip_post=args.skip_post)
 
 
 def main():
     parse_args()
     cfg = get_cfg()
-    runner = Runner(deploy=cfg.deploy)
+    runner = Runner(deploy=cfg.deploy, skip_optim=cfg.skip_optim, skip_post=cfg.skip_post)
     runner.run()
 
 
