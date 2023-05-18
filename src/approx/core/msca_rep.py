@@ -152,18 +152,23 @@ class MscaRep(Approximater):
             sd_conv.bias.data = bias
         else:
             u, s, vh = torch.linalg.svd(weight, full_matrices=False)  #
-            s = torch.sqrt(s)
+            # s = torch.sqrt(s)
             if self.decomp == 1:
                 sd_conv: CascadeConv = tgt.sd_convs[0] if self.fix else tgt.sd_convs
-                sd_conv.conv1.weight.data = (vh[..., 0, :] * s[..., 0][..., None])[..., None, :]
+                # sd_conv.conv1.weight.data = (vh[..., 0, :] * s[..., 0][..., None])[..., None, :]
+                # sd_conv.conv2.weight.data = (u[..., 0] * s[..., 0][..., None])[..., None]
+                sd_conv.conv1.weight.data = (vh[..., 0, :])[..., None, :]
                 sd_conv.conv2.weight.data = (u[..., 0] * s[..., 0][..., None])[..., None]
                 sd_conv.conv2.bias.data = bias
             else:
                 sd_conv: ParallelConv = tgt.sd_convs[0] if self.fix else tgt.sd_convs
                 for j in range(self.decomp):
-                    sd_conv.branches[j].conv1.weight.data = (vh[..., j, :] * s[..., j][..., None])[..., None, :]
+                    sd_conv.branches[j].conv1.weight.data = (vh[..., j, :])[..., None, :]
                     sd_conv.branches[j].conv2.weight.data = (u[..., j] * s[..., j][..., None])[..., None]
                 sd_conv.branches[-1].conv2.bias.data = bias
+            lbd = s ** 2
+            m_pce = torch.mean(torch.sum(lbd[..., :self.decomp], dim=-1) / torch.sum(lbd, dim=-1))
+            print(f'{m_pce.item()},')
         if self.fix:
             fix: FixPaddingBias = tgt.sd_convs[1]
             fix.res.data = res

@@ -20,4 +20,3 @@ hooks = [
     )
 ]
 
-output_name = 'mscan_t_d0.pth'

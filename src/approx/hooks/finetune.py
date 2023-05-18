@@ -129,7 +129,7 @@ class L2Reconstruct(Hook):
 
         num_layers = self.model.length_switchable
 
-        for sub in self.model.switchable_models():
+        for sub in self.model.switchable_modules():
             sub.switch_new(remove_old=self.no_norm)
         if self.ori_model is not None:
             for f in self.runner.filters:
@@ -140,10 +140,10 @@ class L2Reconstruct(Hook):
             for idx in range(self.ori_model.length_switchable):
                 src = self.ori_model.get_switchable_module(idx)
                 self.ori_model.set_switchable_module(idx, self.runner.app.initialize, src=src)
-            for sub in self.ori_model.switchable_models():
+            for sub in self.ori_model.switchable_modules():
                 sub.switch_old(remove_new=True)
                 sub.register_forward_hook(cache_module_output)
-            for sub in self.model.switchable_models():
+            for sub in self.model.switchable_modules():
                 sub.switch_new(remove_old=True)
             self.ori_model.eval()
             self.ori_model.cuda()
@@ -283,7 +283,7 @@ class L2Reconstruct(Hook):
         num_updates = epoch * len(loader)
 
         if self.asym and not self.no_norm:
-            for sub in unwrap_model(self.model).switchable_models():
+            for sub in unwrap_model(self.model).switchable_modules():
                 sub.register_forward_hook(get_l2_error)
 
         for batch_idx, (input, target) in enumerate(loader):
@@ -294,18 +294,18 @@ class L2Reconstruct(Hook):
                 if self.asym:
                     with torch.no_grad():
                         self.ori_model(input)
-                    for ori_sub, sub in zip(unwrap_model(self.ori_model).switchable_models(),
-                                            unwrap_model(self.model).switchable_models()):
+                    for ori_sub, sub in zip(unwrap_model(self.ori_model).switchable_modules(),
+                                            unwrap_model(self.model).switchable_modules()):
                         sub.cache['ori_output'] = ori_sub.cache['ori_output']
                 else:
-                    for sub in unwrap_model(self.model).switchable_models():
+                    for sub in unwrap_model(self.model).switchable_modules():
                         sub.switch_old(remove_new=False)
                         sub._forward_hooks = OrderedDict()
                         sub.register_forward_hook(cache_module_output)
                     self.model.eval()
                     with torch.no_grad():
                         self.model(input)
-                    for sub in unwrap_model(self.model).switchable_models():
+                    for sub in unwrap_model(self.model).switchable_modules():
                         sub.switch_new(remove_old=False)
                         sub._forward_hooks = OrderedDict()
                         sub.register_forward_hook(get_l2_error)
@@ -314,7 +314,7 @@ class L2Reconstruct(Hook):
             loss = loss_fn(output, target)
             total_norm = 0
             if not self.no_norm:
-                for sub in unwrap_model(self.model).switchable_models():
+                for sub in unwrap_model(self.model).switchable_modules():
                     total_norm += sub.cache['norm']
                 total_norm /= self.model.length_switchable
                 total_norm = torch.mean(total_norm)
@@ -371,7 +371,7 @@ class L2Reconstruct(Hook):
         if hasattr(optimizer, 'sync_lookahead'):
             optimizer.sync_lookahead()
         if not self.no_norm:
-            for sub in unwrap_model(self.model).switchable_models():
+            for sub in unwrap_model(self.model).switchable_modules():
                 sub._forward_hooks = OrderedDict()
                 sub.cache = {}
         return OrderedDict([('loss', total_m.avg)])

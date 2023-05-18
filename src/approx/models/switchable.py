@@ -56,7 +56,7 @@ class SwitchableModel(nn.Module):
     def get_switchable_module(self, index: int) -> Union[nn.Module, Substitution]:
         return self.get_submodule(self._switchable_names[index])
 
-    def switchable_models(self) -> Iterable[Union[nn.Module, Substitution]]:
+    def switchable_modules(self) -> Iterable[Union[nn.Module, Substitution]]:
         for idx in range(self.length_switchable):
             yield self.get_switchable_module(idx)
 

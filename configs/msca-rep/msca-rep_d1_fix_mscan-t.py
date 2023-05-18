@@ -1,4 +1,4 @@
-_base_ = ['../../_base_/models/mscan/mscan-t.py']
+_base_ = ['../_base_/models/mscan/mscan-t.py']
 
 app = dict(
     type="MscaRep",
@@ -27,4 +27,3 @@ hooks = [
     )
 ]
 
-output_name = 'mscan_t_d1_fix.pth'

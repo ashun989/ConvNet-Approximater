@@ -64,7 +64,7 @@ class Runner(BaseRunner):
 
         if not self.skip_optim:
             get_logger().info('Optimize...')
-            for sub in self.model.switchable_models():
+            for sub in self.model.switchable_modules():
                 self.app.optimize(sub)
         self.call_hook("after_optimize")
 

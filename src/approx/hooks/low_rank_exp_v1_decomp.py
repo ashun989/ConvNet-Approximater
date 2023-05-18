@@ -8,7 +8,7 @@ class LowRankExpV1Decomp(Hook):
         super(LowRankExpV1Decomp, self).__init__(runner, priority)
 
     def after_run(self):
-        for s_module in self.runner.model.switchable_models():
+        for s_module in self.runner.model.switchable_modules():
             assert isinstance(s_module, LowRankExpConvV1)
             s_module.decomp()
    
